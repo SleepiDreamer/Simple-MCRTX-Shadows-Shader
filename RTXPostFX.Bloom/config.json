@@ -1,0 +1,24 @@
+{
+    "compiler": {
+        "type": "dxc",
+        "options": [
+            "-Qstrip_reflect"
+        ]
+    },
+    "file_overwrite": {
+        "default": {
+            "entry_point": "main"
+        },
+        "passes": {
+            "BloomUpscalePass": {
+                "fragment": "BloomUpscalePass.Fragment.hlsl"
+            },
+            "BloomDownscaleUniformPass": {
+                "fragment": "BloomDownscaleUniformPass.Fragment.hlsl"
+            },
+            "BloomDownscaleGaussianPass": {
+                "fragment": "BloomDownscaleGaussianPass.Fragment.hlsl"
+            }
+        }
+    }
+}

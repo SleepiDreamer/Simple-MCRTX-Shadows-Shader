@@ -1,0 +1,18 @@
+{
+    "compiler": {
+        "type": "dxc",
+        "options": [
+            "-Qstrip_reflect"
+        ]
+    },
+    "file_overwrite": {
+        "default": {
+            "entry_point": "main"
+        },
+        "passes": {
+            "ToneMapping": {
+                "fragment": "ToneMapping.Fragment.hlsl"
+            }
+        }
+    }
+}

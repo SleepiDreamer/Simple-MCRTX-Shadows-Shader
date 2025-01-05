@@ -1,0 +1,177 @@
+{
+  "compiler": {
+    "type": "dxc",
+    "options": [
+      "-enable-16bit-types",
+      "-DDXR_1_1",
+      "-no-warnings"
+    ]
+  },
+  "macro_overwrite": {},
+  "file_overwrite": {
+    "passes": {
+      "BlurGradients": {
+        "compute": "AdaptiveDenoiser.hlsl"
+      },
+      "WFTest": {
+        "compute": "DebugUtils.hlsl"
+      },
+      "DrawLights": {
+        "compute": "DebugUtils.hlsl"
+      },
+      "FilterMoments": {
+        "entry_point": "FilterMomentsColour",
+        "compute": "Denoising.hlsl"
+      },
+      "FilterMomentsSH": {
+        "compute": "Denoising.hlsl"
+      },
+      "Atrous": {
+        "entry_point": "AtrousColour",
+        "compute": "Denoising.hlsl"
+      },
+      "AtrousSH": {
+        "compute": "Denoising.hlsl"
+      },
+      "BlendCheckerboardFields": {
+        "entry_point": "BlendCheckerboardFieldsColour",
+        "compute": "Denoising.hlsl"
+      },
+      "BlendCheckerboardFieldsSH": {
+        "compute": "Denoising.hlsl"
+      },
+      "FinalCombine": {
+        "compute": "FinalCombine.hlsl"
+      },
+      "TAA": {
+        "compute": "FinalCombine.hlsl"
+      },
+      "CopyToFinal": {
+        "compute": "FinalCombine.hlsl"
+      },
+      "CheckerboardInterleave": {
+        "compute": "FinalCombine.hlsl"
+      },
+      "DiffuseFireflyFilter": {
+        "compute": "FireflyFilter.hlsl"
+      },
+      "DiffuseFireflyFilterSH": {
+        "compute": "FireflyFilter.hlsl"
+      },
+      "SpecularFireflyFilter": {
+        "compute": "FireflyFilter.hlsl"
+      },
+      "ClearVertexIrradianceCache": {
+        "compute": "IrradianceCache.hlsl"
+      },
+      "ClearFaceIrradianceCache": {
+        "compute": "IrradianceCache.hlsl"
+      },
+      "UpdateVertexIrradianceCacheInline": {
+        "compute": "IrradianceCache.hlsl"
+      },
+      "UpdateFaceIrradianceCacheInline": {
+        "compute": "IrradianceCache.hlsl"
+      },
+      "ResolveLightMeasurement": {
+        // Custom entry point for exposure value calculation.
+        "entry_point": "ResolveExposure",
+        "compute": "LightMeter.hlsl"
+      },
+      "IncidentLightMeterInline": {
+        // Custom entry point for incident light measurement.
+        "entry_point": "MeasureIncidentLight",
+        "compute": "LightMeter.hlsl"
+      },
+      "CalculateFaceData": {
+        "compute": "PrepareGeometry.hlsl"
+      },
+      "PrimaryCheckerboardRayGenInline": {
+        // Custom entry point for primary ray pass.
+        "entry_point": "PopulateGBuffer",
+        "compute": "RayGen.hlsl"
+      },
+      "SunShadowRayGenInline": {
+        // Custom entry point for calculating sun shadows.
+        "entry_point": "SunShadows",
+        "compute": "RayGen.hlsl"
+      },
+      "RefractionRayGenInline": {
+        "compute": "RayGen.hlsl"
+      },
+      "ExplicitLightSamplingInline": {
+        "compute": "RayGen.hlsl"
+      },
+      "DiffuseRayGenCombinedInline": {
+        // Custom entry point for diffuse lighting.
+        "entry_point": "DiffuseLighting",
+        "compute": "RayGen.hlsl"
+      },
+      "AdaptiveDenoiserGenerateReferenceInline": {
+        "compute": "RayGen.hlsl"
+      },
+      "AdaptiveDenoiserCalculateGradientsInline": {
+        "compute": "RayGen.hlsl"
+      },
+      "SpecularRayGenInline": {
+        // Custom entry point for combining lighting effects together.
+        "entry_point": "AccumulateLighting",
+        "compute": "RayGen.hlsl"
+      },
+      "PathTracingRayGenInline": {
+        "compute": "RayGen.hlsl"
+      },
+      "Reproject": {
+        "compute": "Reprojection.hlsl"
+      },
+      "ReprojectSpecularOnly": {
+        "compute": "Reprojection.hlsl"
+      },
+      "ReprojectSH": {
+        "compute": "Reprojection.hlsl"
+      },
+      "TemporalDenoising": {
+        "compute": "ShadowDenoising.hlsl"
+      },
+      "ShadowDenoising": {
+        "compute": "ShadowDenoising.hlsl"
+      },
+      "FinalizeDenoising": {
+        "compute": "ShadowDenoising.hlsl"
+      },
+      "BlendCheckerboardFieldsShadow": {
+        "compute": "ShadowDenoising.hlsl"
+      },
+      "TileClassification": {
+        "compute": "TileClassification.hlsl"
+      },
+      "ToneMappingHistogram": {
+        "compute": "ToneMapping.hlsl"
+      },
+      "ToneCurve": {
+        "compute": "ToneMapping.hlsl"
+      },
+      "CheckerboardUpscale": {
+        "compute": "Upscale.hlsl"
+      },
+      "CheckerboardUpscaleSH": {
+        "compute": "Upscale.hlsl"
+      },
+      "AccumulateInscatter": {
+        "compute": "VolumetricLighting.hlsl"
+      },
+      "AccumulateGIInscatter": {
+        "compute": "VolumetricLighting.hlsl"
+      },
+      "BlurGIInscatter": {
+        "compute": "VolumetricLighting.hlsl"
+      },
+      "CalculateInscatterInline": {
+        "compute": "VolumetricLighting.hlsl"
+      },
+      "CalculateGIInscatterInline": {
+        "compute": "VolumetricLighting.hlsl"
+      }
+    }
+  }
+}
