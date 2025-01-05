@@ -26,7 +26,7 @@
  to PATH*:
  `%localappdata%\Packages\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\LocalCache\local-packages\Python312\Scripts`. 
  
-  \* The entry may look different for different istallations of Python, or if you haven't
+  \* The entry may look different for different installations of Python, or if you haven't
   installed lazurite through pip.
 
 ## Remarks:
