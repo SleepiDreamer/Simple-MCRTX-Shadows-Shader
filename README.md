@@ -23,11 +23,11 @@
  The example was created and developed on VS Code, and includes a build task configuration
  that calls lazurite to compile and export the project. You'll need to add lazurite to your
  PATH if you want to take advantage of this, which can be done by adding the following entry
- to PATH*:
- `%localappdata%\Packages\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\LocalCache\local-packages\Python312\Scripts`. 
+ to PATH*: `C:\Python312\Scripts`. 
  
   \* The entry may look different for different installations of Python, or if you haven't
-  installed lazurite through pip.
+  installed lazurite through pip. The path entry just needs to point to the folder that
+  contains `lazurite.exe`.
 
 ## Remarks:
  My hope is for this example to provide a good introduction to MCRTX shader development that
