@@ -97,11 +97,13 @@ void SunShadows(uint2 ipos: SV_DispatchThreadID)
     outputBufferSunLight[ipos] = float4(sunlight, 1.0);
 }
 
-float3 GetSunLight(float3 normal, float3 origin)
+const float sunSizeDeg = 3.0f;
+
+float3 GetSunLight(float3 normal, float3 origin, uint randSeed)
 {
     RayDesc ray;
     ray.Origin = offsetRay(origin, normal);
-    ray.Direction = g_view.directionToSun;
+    ray.Direction = normalize(g_view.directionToSun + 0.05 * (hemisphereSample(randSeed, normal) - 0.5f));
     ray.TMin = 0.0;
     ray.TMax = MAX_RAY_DISTANCE;
 
@@ -251,7 +253,7 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         }
         else
         {
-            float3 sunlight = GetSunLight(normal, hitPosition) * max(0.0, dot(normal, g_view.directionToSun));
+            float3 sunlight = GetSunLight(normal, hitPosition, randSeed) * max(0.0, dot(normal, g_view.directionToSun));
 
             float3 radiance = emission + albedo * sunlight;
 
