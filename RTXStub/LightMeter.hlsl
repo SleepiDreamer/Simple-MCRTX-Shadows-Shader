@@ -84,8 +84,15 @@ void ResolveExposure(uint idx: SV_DispatchThreadID)
     float desiredExposure = exp2(desiredEV);
     float nextExposure = exp2(nextEV);
 
+#if 0 // Toggle auto exposure on/off
     // Write to incident light buffer. Index 2 is left unused at the moment.
     outputBufferIncidentLight[0].rg = float2(nextExposure, desiredExposure);
     outputBufferIncidentLight[1].rg = float2(nextEV, desiredEV);
     outputBufferIncidentLight[2].rgb = 1;
+#else
+    // Write to incident light buffer. Index 2 is left unused at the moment.
+    outputBufferIncidentLight[0].rg = float2(1.0f, 1.0f);
+    outputBufferIncidentLight[1].rg = float2(1.0f, 1.0f);
+    outputBufferIncidentLight[2].rgb = 1;
+#endif
 }

@@ -115,7 +115,7 @@
       },
       "SpecularRayGenInline": {
         // Custom entry point for combining lighting effects together.
-        "entry_point": "AccumulateLighting",
+        "entry_point": "PathTracingRayGenInline",
         "compute": "RayGen.hlsl"
       },
       "PathTracingRayGenInline": {

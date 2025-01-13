@@ -58,59 +58,67 @@ void TAA(int2 DTid: SV_DispatchThreadID)
     int x = DTid.x;
     int y = DTid.y;
 
-    // Calculate position in the render buffer (at the lower render resolution)
     float2 nearestRenderPos = float2(x + 0.5f, y + 0.5f) * g_view.renderResolutionDivDisplayResolution - g_view.subPixelJitter - 0.5f;
     int2 intRenderPos = int2(round(nearestRenderPos.x), round(nearestRenderPos.y));
+    outputBufferTAAHistory[DTid] = inputBufferFinalColour[intRenderPos];
+    return;
 
-    float4 currentColor = inputBufferFinalColour[intRenderPos];
-    float2 motionPixels = inputBufferMotionVectors[intRenderPos];
+    // int x = DTid.x;
+    // int y = DTid.y;
 
-    float3 c1 = currentColor.rgb;
-    float3 c2 = currentColor.rgb * currentColor.rgb;
-    for (int i = -1; i <= 1; i++)
-    {
-        for (int j = -1; j <= 1; j++)
-        {
-            if (i == 0 && j == 0)
-                continue;
+    // // Calculate position in the render buffer (at the lower render resolution)
+    // float2 nearestRenderPos = float2(x + 0.5f, y + 0.5f) * g_view.renderResolutionDivDisplayResolution - g_view.subPixelJitter - 0.5f;
+    // int2 intRenderPos = int2(round(nearestRenderPos.x), round(nearestRenderPos.y));
 
-            int2 p = intRenderPos + int2(i, j);
+    // float4 currentColor = inputBufferFinalColour[intRenderPos];
+    // float2 motionPixels = inputBufferMotionVectors[intRenderPos];
 
-            float3 c = inputBufferFinalColour[p].rgb;
-            float2 mv = inputBufferMotionVectors[p];
-            c1 = c1 + c;
-            c2 = c2 + c * c;
-            if (dot(mv, mv) > dot(motionPixels, motionPixels))
-            {
-                motionPixels = mv;
-            }
-        }
-    }
+    // float3 c1 = currentColor.rgb;
+    // float3 c2 = currentColor.rgb * currentColor.rgb;
+    // for (int i = -1; i <= 1; i++)
+    // {
+    //     for (int j = -1; j <= 1; j++)
+    //     {
+    //         if (i == 0 && j == 0)
+    //             continue;
 
-    motionPixels *= g_view.renderResolution;
+    //         int2 p = intRenderPos + int2(i, j);
 
-    c1 = c1 / 9.0f;
-    c2 = c2 / 9.0f;
-    float3 extent = sqrt(max(0.0f, c2 - c1 * c1));
-    float motionWeight = smoothstep(0, 1.0f, sqrt(dot(motionPixels, motionPixels)));
-    float bias = lerp(4.0f, 1.0f, motionWeight);
-    float3 minValidColour = c1 - extent * bias;
-    float3 maxValidColour = c1 + extent * bias;
+    //         float3 c = inputBufferFinalColour[p].rgb;
+    //         float2 mv = inputBufferMotionVectors[p];
+    //         c1 = c1 + c;
+    //         c2 = c2 + c * c;
+    //         if (dot(mv, mv) > dot(motionPixels, motionPixels))
+    //         {
+    //             motionPixels = mv;
+    //         }
+    //     }
+    // }
 
-    float2 posPreviousPixels = float2(x + 0.5f, y + 0.5f) + motionPixels * g_view.displayResolutionDivRenderResolution;
-    posPreviousPixels = clamp(posPreviousPixels, float2(0, 0), g_view.displayResolution - 1.0f);
-    float3 prevColor = BicubicSampleCatmullRom(inputTAAHistory, linearSampler, posPreviousPixels, g_view.recipDisplayResolution);
-    prevColor = min(maxValidColour, max(minValidColour, prevColor));
+    // motionPixels *= g_view.renderResolution;
 
-    if (currentColor.a != 0)
-    {
-        nearestRenderPos += g_view.subPixelJitter - g_view.previousSubPixelJitter;
-    }
+    // c1 = c1 / 9.0f;
+    // c2 = c2 / 9.0f;
+    // float3 extent = sqrt(max(0.0f, c2 - c1 * c1));
+    // float motionWeight = smoothstep(0, 1.0f, sqrt(dot(motionPixels, motionPixels)));
+    // float bias = lerp(4.0f, 1.0f, motionWeight);
+    // float3 minValidColour = c1 - extent * bias;
+    // float3 maxValidColour = c1 + extent * bias;
 
-    float pixelWeight = max(motionWeight, sampleWeight(nearestRenderPos - intRenderPos, g_view.displayResolutionDivRenderResolution)) * 0.1f;
+    // float2 posPreviousPixels = float2(x + 0.5f, y + 0.5f) + motionPixels * g_view.displayResolutionDivRenderResolution;
+    // posPreviousPixels = clamp(posPreviousPixels, float2(0, 0), g_view.displayResolution - 1.0f);
+    // float3 prevColor = BicubicSampleCatmullRom(inputTAAHistory, linearSampler, posPreviousPixels, g_view.recipDisplayResolution);
+    // prevColor = min(maxValidColour, max(minValidColour, prevColor));
 
-    float3 finalColor = lerp(prevColor, currentColor.rgb, pixelWeight);
-    outputBufferTAAHistory[int2(x, y)] = float4(finalColor, 0);
+    // if (currentColor.a != 0)
+    // {
+    //     nearestRenderPos += g_view.subPixelJitter - g_view.previousSubPixelJitter;
+    // }
+
+    // float pixelWeight = max(motionWeight, sampleWeight(nearestRenderPos - intRenderPos, g_view.displayResolutionDivRenderResolution)) * 0.1f;
+
+    // float3 finalColor = lerp(prevColor, currentColor.rgb, pixelWeight);
+    // outputBufferTAAHistory[int2(x, y)] = float4(finalColor, 0);
 }
 
 // Write TAA output to final output buffer.

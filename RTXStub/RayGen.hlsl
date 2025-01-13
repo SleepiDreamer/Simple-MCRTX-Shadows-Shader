@@ -1,6 +1,7 @@
 #include "Atmosphere.hlsl"
 #include "Camera.hlsl"
 #include "Common.hlsl"
+#include "Random.hlsl"
 #include "Motion.hlsl"
 #include "SurfaceInfo.hlsl"
 #include "TraceRay.hlsl"
@@ -60,7 +61,7 @@ void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID)
 }
 
 // The intensity of sunlight.
-static const float sunIntensity = 0.75;
+static const float sunIntensity = 2.0f;
 
 // Trace shadow rays to gether incident sunlight.
 [numthreads(4, 8, 1)]
@@ -94,6 +95,28 @@ void SunShadows(uint2 ipos: SV_DispatchThreadID)
     float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
 
     outputBufferSunLight[ipos] = float4(sunlight, 1.0);
+}
+
+float3 GetSunLight(float3 normal, float3 origin)
+{
+    RayDesc ray;
+    ray.Origin = offsetRay(origin, normal);
+    ray.Direction = g_view.directionToSun;
+    ray.TMin = 0.0;
+    ray.TMax = MAX_RAY_DISTANCE;
+
+    float3 hitPosition = ray.Origin + ray.TMax * ray.Direction;
+    float NdotS = dot(normal, g_view.directionToSun);
+
+    // Custom fade set up to still include perpendicular sun light on surfaces.
+    float sunFade = smoothstep(-0.2, 0.1, NdotS);
+
+    // Trace shadow ray
+    ShadowPayload payload;
+    TraceShadowRay(ray, payload);
+
+    // float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
+    return sunIntensity * sunFade * payload.transmission;
 }
 
 // Adds ambient lighting to every surface, slightly proportional
@@ -134,53 +157,130 @@ void ExplicitLightSamplingInline(uint2 launchIndex: SV_DispatchThreadID)
 // The intensity multiplier for emissive surfaces.
 static const float emissiveIntensity = 2.0;
 
-// Combine lighting information into the raw HDR render output.
 [numthreads(4, 8, 1)]
-void AccumulateLighting(uint2 ipos: SV_DispatchThreadID)
+void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
 {
+    uint randSeed = initSeed(ipos, g_view.frameCount);
+    float2 ndcCoords = iposToNDCJittered(ipos);
+
     if (any(ipos >= g_view.renderResolution))
     {
         outputBufferFinal[ipos] = 0;
         return;
     }
 
-    ObjectInstance object = objectInstances[inputBufferObjectInstanceIndex[ipos]];
+    float3 finalColour = 0.0f;
+    float3 totalRadiance = 0.0f;
+    float3 throughput = 1.0f;
+    float hitT = MAX_RAY_DISTANCE;
+    RayDesc ray;
 
-    float2 opacityAndCategory = inputBufferOpacityAndObjectCategory[ipos];
-    float4 albedoAndRoughness = inputBufferAlbedoAndRoughness[ipos];
-    float4 emissionAndMetalness = inputBufferEmissionAndMetalness[ipos];
-    float4 positionAndHitT = inputBufferPositionAndHitT[ipos];
-    float3 normal = octToNdirSnorm(inputBufferNormal[ipos]);
-    float3 finalColour = 0;
+	ray.Origin = g_view.viewOriginSteveSpace;
+	ray.Direction = getPrimaryRayDir(ndcCoords);
+	ray.TMin = 0.001f;
+	ray.TMax = MAX_RAY_DISTANCE;
 
-    // If the primary ray hit anything, shade it accordingly. Else sample the sky.
-    if (inputBufferPrimaryPathLength[ipos] < MAX_RAY_DISTANCE)
+    for (int bounce = 0; bounce < 4; bounce++)
     {
+        HitInfo currentHitInfo;
+        currentHitInfo.clear();
+
+        // Trace ray
+        ray.TMin = 0.0f;
+        TracePrimaryRay(ray, currentHitInfo);
+        hitT = currentHitInfo.hitT;
+
+        // Load surface properties
+        ObjectInstance object = objectInstances[currentHitInfo.instIdx];
+        GeometryInfo geometryInfo = getGeometryInfo(currentHitInfo, ray.Direction);
+        SurfaceInfo surfaceInfo = getSurfaceInfo(object, geometryInfo);
+        float3 surfaceTransmission = lerp(surfaceInfo.albedo.rgb, 0..xxx, surfaceInfo.opacity);
+
+        float3 hitPosition = ray.Origin + currentHitInfo.hitT * ray.Direction;
+        
+        float3 albedo = surfaceInfo.albedo.rgb;
+        float opacity = surfaceInfo.opacity;
+        float3 emission = surfaceInfo.emission.rgb;
+        float3 normal = surfaceInfo.normal;
+        float roughness = surfaceInfo.roughness;
+        float metalness = surfaceInfo.metalness;
+        
+        if (bounce == 0) 
+        {
+            float2 geometryNormal = ndirToOctSnorm(normal);
+            float4 albedoAndRoughness = float4(albedo, roughness);
+            float4 emissionAndMetalness = float4(emission, metalness);
+            float2 opacityAndCategory = float2(opacity, object.objectCategory);
+
+            if (currentHitInfo.hasHit())
+            {
+                float3 hitPosition = g_view.viewOriginSteveSpace + currentHitInfo.hitT * ray.Direction;
+                outputBufferPositionAndHitT[ipos] = float4(hitPosition, currentHitInfo.hitT);
+                outputBufferPrimaryPathLength[ipos] = currentHitInfo.hitT;
+
+                outputBufferObjectInstanceIndex[ipos] = currentHitInfo.instIdx;
+                outputBufferMotionVectors[ipos] = computeObjectMotionVector(hitPosition, geometryInfo.motion);
+
+                outputBufferNormal[ipos] = ndirToOctSnorm(normal);
+                outputBufferGeometryNormal[ipos] = geometryNormal;
+                outputBufferAlbedoAndRoughness[ipos] = albedoAndRoughness;
+                outputBufferEmissionAndMetalness[ipos] = emissionAndMetalness;
+                outputBufferOpacityAndObjectCategory[ipos] = opacityAndCategory;
+            }
+            else
+            {
+                outputBufferPositionAndHitT[ipos] = float4(ray.Direction, MAX_RAY_DISTANCE);
+                outputBufferPrimaryPathLength[ipos] = MAX_RAY_DISTANCE;
+
+                float2 mvecs = computeEnvironmentMotionVector(ray.Direction);
+                outputBufferMotionVectors[ipos] = mvecs;
+            }
+        }
+
+        if (!currentHitInfo.hasHit())
+        {
+            // Sky hit
+            totalRadiance += throughput * sampleSky(ray.Direction);
+            break;
+        }
         if (object.flags & objectFlagSunOrMoon)
         {
-            finalColour = screen(sampleSky(normalize(positionAndHitT.xyz)), albedoAndRoughness.rgb) + albedoAndRoughness.rgb;
+            // Sun/Moon hit
+            totalRadiance += throughput * (screen(sampleSky(normalize(hitPosition)), albedo) + albedo);
+            break;
         }
         else
         {
-            float3 emission = emissionAndMetalness.rgb;
-            float3 indirectDiffuse = inputBufferDiffuse[ipos].rgb;
-            float3 sunlight = inputBufferSunLight[ipos].rgb;
+            float3 sunlight = GetSunLight(normal, hitPosition) * max(0.0, dot(normal, g_view.directionToSun));
 
-            float3 albedo = albedoAndRoughness.rgb;
-            float3 diffuse = indirectDiffuse + sunlight;
+            float3 radiance = emission + albedo * sunlight;
 
-            finalColour = emission * emissiveIntensity + albedo * diffuse;
+            totalRadiance += throughput * radiance;
+            throughput *= albedo * opacity;
+
+            // if (length(throughput) < 0.01)
+            // {
+            //     break;
+            // }
         }
-    }
-    else
-        finalColour = sampleSky(positionAndHitT.xyz);
+
+        // Russian Roulette
+        // if (bounce > 3) {
+        //     float p = max(throughput.x, max(throughput.y, throughput.z));
+        //     if (nextSeedFloat(randSeed) > p) {
+        //         break;
+        //     }
+
+        //     throughput /= p;
+        // }
+
+        ray.Origin = offsetRay(hitPosition, normal);
+        ray.Direction = hemisphereSample(randSeed, normal);
+    } 
+    
+    finalColour = totalRadiance;
 
     // Apply throughput value to accumulated lighting.
     float3 primaryThroughput = inputBufferPrimaryThroughput[ipos].rgb;
     outputBufferRawFinal[ipos] = float4(finalColour * primaryThroughput, 1.0);
-}
-
-[numthreads(4, 8, 1)]
-void PathTracingRayGenInline(uint2 launchIndex: SV_DispatchThreadID)
-{
 }

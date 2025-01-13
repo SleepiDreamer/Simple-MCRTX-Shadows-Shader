@@ -8,11 +8,64 @@
 // Ray query flags. Skip procedural primitives by default.
 static const uint RAYFLAGS = RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES;
 
+float3 offsetRay(float3 p, float3 n)
+{
+    const float origin = 1.0f / 32.0f;
+    const float float_scale = 1.0f / 65536.0f;
+    const float int_scale = 256.0f;
+
+    int3 of_i = int3(int_scale * n.x, int_scale * n.y, int_scale * n.z);
+
+    float3 p_i = float3(
+        asfloat(asint(p.x) + ((p.x < 0) ? -of_i.x : of_i.x)),
+        asfloat(asint(p.y) + ((p.y < 0) ? -of_i.y : of_i.y)),
+        asfloat(asint(p.z) + ((p.z < 0) ? -of_i.z : of_i.z))
+    );
+
+    return float3(
+        abs(p.x) < origin ? p.x + float_scale * n.x : p_i.x,
+        abs(p.y) < origin ? p.y + float_scale * n.y : p_i.y,
+        abs(p.z) < origin ? p.z + float_scale * n.z : p_i.z
+    );
+}
+
 // Primary ray traversal logic.
 void TracePrimaryRay(in RayDesc ray, out HitInfo hitInfo)
 {
     RayQuery<RAYFLAGS> q;
     q.TraceRayInline(SceneBVH, 0, INSTANCE_MASK_PRIMARY, ray);
+
+    float closestHitT = MAX_RAY_DISTANCE;
+
+    while (q.Proceed())
+    {
+        ObjectInstance object = objectInstances[q.CandidateInstanceIndex()];
+        if (q.CandidateInstanceID() == OBJECT_CATEGORY_ALPHA_TEST)
+        {
+            if (AlphaTestHitLogic(q.CandidateInstanceIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics()))
+            {
+                q.CommitNonOpaqueTriangleHit();
+            }
+        }
+        else if (object.flags & objectFlagClouds)
+            q.CommitNonOpaqueTriangleHit();
+    }
+
+    float committedHitT = q.CommittedRayT();
+    hitInfo.hitT = committedHitT;
+
+    if (hitInfo.hasHit())
+    {
+        hitInfo.barycentrics = q.CommittedTriangleBarycentrics();
+        hitInfo.instIdx = q.CommittedInstanceIndex();
+        hitInfo.triIdx = q.CommittedPrimitiveIndex();
+    }
+}
+
+void TraceSecondaryRay(in RayDesc ray, out HitInfo hitInfo) 
+{
+    RayQuery<RAYFLAGS> q;
+    q.TraceRayInline(SceneBVH, 0, INSTANCE_MASK_SECONDARY, ray);
 
     float closestHitT = MAX_RAY_DISTANCE;
 

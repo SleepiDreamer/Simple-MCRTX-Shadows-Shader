@@ -1,6 +1,12 @@
 #ifndef _RT_COMMON_HLSL_
 #define _RT_COMMON_HLSL_
 
+#define PI 3.14159265359
+#define HALF_PI 1.57079632679
+#define TWO_PI 6.28318530718
+#define INV_PI 0.31830988618
+#define INV_TWO_PI 0.15915494309
+
 // Defines that must match the cpp code
 #define BGFX_CONFIG_MAX_VERTEX_BUFFERS 4096
 #define BGFX_CONFIG_MAX_INDEX_BUFFERS 4096
@@ -23,6 +29,7 @@
 
 // Custom instance mask combinations.
 #define INSTANCE_MASK_PRIMARY (INSTANCE_MASK_OPAQUE_OR_ALPHA_TEST_PRIMARY | INSTANCE_MASK_SUN_OR_MOON | INSTANCE_MASK_ALPHA_BLENDED_PRIMARY)
+#define INSTANCE_MASK_SECONDARY (INSTANCE_MASK_OPAQUE_OR_ALPHA_TEST_SECONDARY | INSTANCE_MASK_ALPHA_BLENDED_SECONDARY)
 #define INSTANCE_MASK_THROUGHPUT (INSTANCE_MASK_PRIMARY | INSTANCE_MASK_WATER)
 #define INSTANCE_MASK_SHADOW (INSTANCE_MASK_OPAQUE_OR_ALPHA_TEST_SECONDARY | INSTANCE_MASK_ALPHA_BLENDED_SECONDARY | INSTANCE_MASK_WATER)
 
@@ -35,6 +42,8 @@
 #define MEDIA_TYPE_SOLID 		4
 #define MEDIA_TYPE_COUNT 		5
 #define MEDIA_TYPE_WATER_OR_AIR 6
+
+static const float kSkyDistance = 65504.0f;
 
 // Flags for various object properties.
 static const uint16_t objectFlagUsesIrradianceCache = (1 << 0);
@@ -779,7 +788,14 @@ struct HitInfo
 
 	// Returns `true` if the ray has hit something.
     bool hasHit() {
-        return hitT < MAX_RAY_DISTANCE;
+        return hitT < MAX_RAY_DISTANCE - 1.0f;
+	}
+
+	void clear() {
+		barycentrics = float2(0.0, 0.0);
+		instIdx = 0;
+		triIdx = 0;
+		hitT = MAX_RAY_DISTANCE;
 	}
 };
 

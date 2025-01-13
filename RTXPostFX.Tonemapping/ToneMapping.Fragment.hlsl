@@ -37,7 +37,10 @@ float4 main(PSInput input) : SV_Target0 {
     float4 bloomColor = s_gBloomBufferTexture.Sample(s_gBloomBufferSampler, input.texcoord0);
 
     float3 color = mad(bloomColor.rgb, gBloomMultiplier.rgb, rasterColor.rgb);
-    
+    float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
+    float exposureMult = 1.0;
+    float3 tonemapped = (luminance * exposureMult) / ((luminance * exposureMult) + 1.0) * color;
+
 	// Currently lacking a full reverse-engineering of this part :(
 	uint var6 = (uint(abs(ScreenSize.x * input.texcoord0.x)) << 16u) + uint(abs(ScreenSize.y * input.texcoord0.y));
     uint var7 = ((var6 ^ 61u) ^ (var6 >> 16u)) * 9u;
