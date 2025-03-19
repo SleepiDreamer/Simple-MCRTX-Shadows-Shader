@@ -10,54 +10,54 @@
 [numthreads(4, 8, 1)]
 void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID)
 {
-    // Convert image position to NDC coordinates, then use them for primary ray direction.
-    float2 ndcCoords = iposToNDCJittered(ipos);
-    float3 primaryDirection = getPrimaryRayDir(ndcCoords);
+    // // Convert image position to NDC coordinates, then use them for primary ray direction.
+    // float2 ndcCoords = iposToNDCJittered(ipos);
+    // float3 primaryDirection = getPrimaryRayDir(ndcCoords);
 
-    // Initialize primary ray description.
-    RayDesc ray;
-    ray.Origin = g_view.viewOriginSteveSpace;
-    ray.Direction = primaryDirection;
-    ray.TMin = 0.0;
-    ray.TMax = MAX_RAY_DISTANCE;
+    // // Initialize primary ray description.
+    // RayDesc ray;
+    // ray.Origin = g_view.viewOriginSteveSpace;
+    // ray.Direction = primaryDirection;
+    // ray.TMin = 0.0;
+    // ray.TMax = MAX_RAY_DISTANCE;
 
-    // Trace the primary ray.
-    HitInfo hitInfo;
-    TracePrimaryRay(ray, hitInfo);
+    // // Trace the primary ray.
+    // HitInfo hitInfo;
+    // TracePrimaryRay(ray, hitInfo);
 
-    // Write to g-buffers according to ray traversal result.
-    ObjectInstance object = objectInstances[hitInfo.instIdx];
-    if (hitInfo.hasHit())
-    {
-        GeometryInfo geometry = getGeometryInfo(hitInfo, ray.Direction);
-        SurfaceInfo surface = getSurfaceInfo(object, geometry);
+    // // Write to g-buffers according to ray traversal result.
+    // ObjectInstance object = objectInstances[hitInfo.instIdx];
+    // if (hitInfo.hasHit())
+    // {
+    //     GeometryInfo geometry = getGeometryInfo(hitInfo, ray.Direction);
+    //     SurfaceInfo surface = getSurfaceInfo(object, geometry);
 
-        float3 hitPosition = g_view.viewOriginSteveSpace + hitInfo.hitT * primaryDirection;
-        outputBufferPositionAndHitT[ipos] = float4(hitPosition, hitInfo.hitT);
-        outputBufferPrimaryPathLength[ipos] = hitInfo.hitT;
+    //     float3 hitPosition = g_view.viewOriginSteveSpace + hitInfo.hitT * primaryDirection;
+    //     outputBufferPositionAndHitT[ipos] = float4(hitPosition, hitInfo.hitT);
+    //     outputBufferPrimaryPathLength[ipos] = hitInfo.hitT;
 
-        outputBufferObjectInstanceIndex[ipos] = hitInfo.instIdx;
-        outputBufferMotionVectors[ipos] = computeObjectMotionVector(hitPosition, geometry.motion);
+    //     outputBufferObjectInstanceIndex[ipos] = hitInfo.instIdx;
+    //     outputBufferMotionVectors[ipos] = computeObjectMotionVector(hitPosition, geometry.motion);
 
-        outputBufferNormal[ipos] = ndirToOctSnorm(surface.normal);
-        outputBufferGeometryNormal[ipos] = ndirToOctSnorm(geometry.normal);
-        outputBufferAlbedoAndRoughness[ipos] = float4(surface.albedo, surface.roughness);
-        outputBufferEmissionAndMetalness[ipos] = float4(surface.emission, surface.metalness);
-        outputBufferOpacityAndObjectCategory[ipos] = float2(surface.opacity, object.objectCategory);
-    }
-    else
-    {
-        outputBufferPositionAndHitT[ipos] = float4(primaryDirection, MAX_RAY_DISTANCE);
-        outputBufferPrimaryPathLength[ipos] = MAX_RAY_DISTANCE;
+    //     outputBufferNormal[ipos] = ndirToOctSnorm(surface.normal);
+    //     outputBufferGeometryNormal[ipos] = ndirToOctSnorm(geometry.normal);
+    //     outputBufferAlbedoAndRoughness[ipos] = float4(surface.albedo, surface.roughness);
+    //     outputBufferEmissionAndMetalness[ipos] = float4(surface.emission, surface.metalness);
+    //     outputBufferOpacityAndObjectCategory[ipos] = float2(surface.opacity, object.objectCategory);
+    // }
+    // else
+    // {
+    //     outputBufferPositionAndHitT[ipos] = float4(primaryDirection, MAX_RAY_DISTANCE);
+    //     outputBufferPrimaryPathLength[ipos] = MAX_RAY_DISTANCE;
 
-        float2 mvecs = computeEnvironmentMotionVector(primaryDirection);
-        outputBufferMotionVectors[ipos] = mvecs;
-    }
+    //     float2 mvecs = computeEnvironmentMotionVector(primaryDirection);
+    //     outputBufferMotionVectors[ipos] = mvecs;
+    // }
 
-    // Get throughput along the ray. This is mainly used to render alpha-blending objects.
-    float3 throughput;
-    TraceThroughputRay(ray, throughput);
-    outputBufferPrimaryThroughput[ipos] = float4(throughput, 0);
+    // // Get throughput along the ray. This is mainly used to render alpha-blending objects.
+    // float3 throughput;
+    // TraceThroughputRay(ray, throughput);
+    // outputBufferPrimaryThroughput[ipos] = float4(throughput, 0);
 }
 
 // The intensity of sunlight.
@@ -67,34 +67,34 @@ static const float sunIntensity = 2.0f;
 [numthreads(4, 8, 1)]
 void SunShadows(uint2 ipos: SV_DispatchThreadID)
 {
-    // Pull position and normal from g-buffers.
-    float4 positionAndHitT = inputBufferPositionAndHitT[ipos];
-    float3 normal = octToNdirSnorm(inputBufferNormal[ipos]);
-    // Compute cosine of sunlight direction and normal.
-    float NdotS = dot(normal, g_view.directionToSun);
-    // Custom fade set up to still include perpendicular sun light on surfaces.
-    float sunFade = smoothstep(-0.2, 0.1, NdotS);
+    // // Pull position and normal from g-buffers.
+    // float4 positionAndHitT = inputBufferPositionAndHitT[ipos];
+    // float3 normal = octToNdirSnorm(inputBufferNormal[ipos]);
+    // // Compute cosine of sunlight direction and normal.
+    // float NdotS = dot(normal, g_view.directionToSun);
+    // // Custom fade set up to still include perpendicular sun light on surfaces.
+    // float sunFade = smoothstep(-0.2, 0.1, NdotS);
 
-    if (inputBufferPrimaryPathLength[ipos] == MAX_RAY_DISTANCE || sunFade == 0.0)
-    {
-        outputBufferSunLight[ipos] = 0;
-        return;
-    }
+    // if (inputBufferPrimaryPathLength[ipos] == MAX_RAY_DISTANCE || sunFade == 0.0)
+    // {
+    //     outputBufferSunLight[ipos] = 0;
+    //     return;
+    // }
 
-    // Setup the shadow ray.
-    RayDesc ray;
-    ray.Origin = positionAndHitT.xyz + 1.0e-5 * normal;
-    ray.Direction = g_view.directionToSun;
-    ray.TMin = 0.0;
-    ray.TMax = MAX_RAY_DISTANCE;
+    // // Setup the shadow ray.
+    // RayDesc ray;
+    // ray.Origin = positionAndHitT.xyz + 1.0e-5 * normal;
+    // ray.Direction = g_view.directionToSun;
+    // ray.TMin = 0.0;
+    // ray.TMax = MAX_RAY_DISTANCE;
 
-    // Trace shadow ray and write resulting sunlight value.
-    ShadowPayload payload;
-    TraceShadowRay(ray, payload);
+    // // Trace shadow ray and write resulting sunlight value.
+    // ShadowPayload payload;
+    // TraceShadowRay(ray, payload);
 
-    float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
+    // float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
 
-    outputBufferSunLight[ipos] = float4(sunlight, 1.0);
+    // outputBufferSunLight[ipos] = float4(sunlight, 1.0);
 }
 
 const float sunSizeDeg = 3.0f;
@@ -103,7 +103,7 @@ float3 GetSunLight(float3 normal, float3 origin, uint randSeed)
 {
     RayDesc ray;
     ray.Origin = offsetRay(origin, normal);
-    ray.Direction = normalize(g_view.directionToSun + 0.05 * (hemisphereSample(randSeed, normal) - 0.5f));
+    ray.Direction = normalize(g_view.directionToSun + 0.05 * (hemisphereSample(randSeed, normal) - 0.05f));
     ray.TMin = 0.0;
     ray.TMax = MAX_RAY_DISTANCE;
 
@@ -126,13 +126,13 @@ float3 GetSunLight(float3 normal, float3 origin, uint randSeed)
 [numthreads(4, 8, 1)]
 void DiffuseLighting(uint2 ipos: SV_DispatchThreadID)
 {
-    float3 normal = octToNdirSnorm(inputBufferNormal[ipos]);
-    float NdotS = dot(normal, g_view.directionToSun);
+    // float3 normal = octToNdirSnorm(inputBufferNormal[ipos]);
+    // float NdotS = dot(normal, g_view.directionToSun);
 
-    float3 ambient = 0;
-    if (inputBufferPrimaryPathLength[ipos] < MAX_RAY_DISTANCE)
-        ambient = lerp(0.5, 0.7, remap(NdotS, -1.0, 1.0));
-    outputBufferDiffuse[ipos] = float4(ambient, 0.0);
+    // float3 ambient = 0;
+    // if (inputBufferPrimaryPathLength[ipos] < MAX_RAY_DISTANCE)
+    //     ambient = lerp(0.5, 0.7, remap(NdotS, -1.0, 1.0));
+    // outputBufferDiffuse[ipos] = float4(ambient, 0.0);
 }
 
 // Entry Points
@@ -157,7 +157,7 @@ void ExplicitLightSamplingInline(uint2 launchIndex: SV_DispatchThreadID)
 }
 
 // The intensity multiplier for emissive surfaces.
-static const float emissiveIntensity = 2.0;
+static const float emissiveIntensity = 500.0;
 
 [numthreads(4, 8, 1)]
 void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
@@ -165,7 +165,7 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     uint randSeed = initSeed(ipos, g_view.frameCount);
     float2 ndcCoords = iposToNDCJittered(ipos);
 
-    if (any(ipos >= g_view.renderResolution))
+    if (any(ipos >= g_view.renderResolution) || any(ipos < 0))
     {
         outputBufferFinal[ipos] = 0;
         return;
@@ -202,13 +202,16 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         
         float3 albedo = surfaceInfo.albedo.rgb;
         float opacity = surfaceInfo.opacity;
-        float3 emission = surfaceInfo.emission.rgb;
+        float3 emission = surfaceInfo.emission.rgb * emissiveIntensity;
         float3 normal = surfaceInfo.normal;
         float roughness = surfaceInfo.roughness;
         float metalness = surfaceInfo.metalness;
         
-        if (bounce == 0) 
-        {
+        // outputBufferRawFinal[ipos] = outputBufferAlbedoAndRoughness[ipos];
+        // return;
+
+        if (bounce == 0)
+        { // Populate GBuffer
             float2 geometryNormal = ndirToOctSnorm(normal);
             float4 albedoAndRoughness = float4(albedo, roughness);
             float4 emissionAndMetalness = float4(emission, metalness);
@@ -228,11 +231,23 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
                 outputBufferAlbedoAndRoughness[ipos] = albedoAndRoughness;
                 outputBufferEmissionAndMetalness[ipos] = emissionAndMetalness;
                 outputBufferOpacityAndObjectCategory[ipos] = opacityAndCategory;
+
+                float2 mvecs = computeEnvironmentMotionVector(ray.Direction);
+                outputBufferMotionVectors[ipos] = mvecs;
             }
             else
             {
                 outputBufferPositionAndHitT[ipos] = float4(ray.Direction, MAX_RAY_DISTANCE);
                 outputBufferPrimaryPathLength[ipos] = MAX_RAY_DISTANCE;
+
+                outputBufferObjectInstanceIndex[ipos] = 0;
+                outputBufferMotionVectors[ipos] = float2(0, 0);
+
+                outputBufferNormal[ipos] = float4(0, 0, 0, 0);
+                outputBufferGeometryNormal[ipos] = float4(0, 0, 0, 0);
+                outputBufferAlbedoAndRoughness[ipos] = float4(0, 0, 0, 0);
+                outputBufferEmissionAndMetalness[ipos] = float4(0, 0, 0, 0);
+                outputBufferOpacityAndObjectCategory[ipos] = float2(0, 0);
 
                 float2 mvecs = computeEnvironmentMotionVector(ray.Direction);
                 outputBufferMotionVectors[ipos] = mvecs;
@@ -284,5 +299,13 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
 
     // Apply throughput value to accumulated lighting.
     float3 primaryThroughput = inputBufferPrimaryThroughput[ipos].rgb;
+#if 1 // Debug
+    float2 uv = ipos / g_view.renderResolution;
+    outputBufferRawFinal[ipos] = outputBufferAlbedoAndRoughness[ipos];
+    if (uv.x > 0.25) outputBufferRawFinal[ipos] = float4(outputBufferGeometryNormal[ipos], 0.0, 1.0);
+    if (uv.x > 0.5) outputBufferRawFinal[ipos] = outputBufferEmissionAndMetalness[ipos];
+    if (uv.x > 0.75) outputBufferRawFinal[ipos] = float4(finalColour, 1.0);
+#else
     outputBufferRawFinal[ipos] = float4(finalColour * primaryThroughput, 1.0);
+#endif
 }
