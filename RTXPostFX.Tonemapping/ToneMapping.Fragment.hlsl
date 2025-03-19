@@ -32,22 +32,40 @@ Texture2D<float4> s_gToneCurveTexture       : register(CONCAT(t, s_gToneCurve_RE
 Texture2D<float4> s_gRasterizedInputTexture : register(CONCAT(t, s_gRasterizedInput_REG));
 Texture2D<float4> s_gBloomBufferTexture     : register(CONCAT(t, s_gBloomBuffer_REG));
 
+// float4 main(PSInput input) : SV_Target0 {
+//     float4 rasterColor = s_RasterColorTexture.Sample(s_RasterColorSampler, input.texcoord0);
+//     float4 bloomColor = s_gBloomBufferTexture.Sample(s_gBloomBufferSampler, input.texcoord0);
+
+//     float3 color = mad(bloomColor.rgb, gBloomMultiplier.rgb, rasterColor.rgb);
+//     float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
+//     float exposureMult = 1.0;
+//     float3 tonemapped = (luminance * exposureMult) / ((luminance * exposureMult) + 1.0) * color;
+
+// 	// Currently lacking a full reverse-engineering of this part :(
+// 	uint var6 = (uint(abs(ScreenSize.x * input.texcoord0.x)) << 16u) + uint(abs(ScreenSize.y * input.texcoord0.y));
+//     uint var7 = ((var6 ^ 61u) ^ (var6 >> 16u)) * 9u;
+//     uint var8 = ((var7 >> 4u) ^ var7) * 668265261u;
+//     float var9 = (1.0 / 510.0) - (float((var8 >> 15u) ^ var8) * 1.826122803319507603703186759958e-12f);
+//     float4 rasterizedInput = s_gRasterizedInputTexture.Sample(s_gRasterizedInputSampler, input.texcoord0);
+//     float alpha = 1.0f - rasterizedInput.w;
+
+//     return float4(rasterizedInput.rgb + ((var9 + color) * alpha), 1.0);
+// }
+
 float4 main(PSInput input) : SV_Target0 {
     float4 rasterColor = s_RasterColorTexture.Sample(s_RasterColorSampler, input.texcoord0);
     float4 bloomColor = s_gBloomBufferTexture.Sample(s_gBloomBufferSampler, input.texcoord0);
-
-    float3 color = mad(bloomColor.rgb, gBloomMultiplier.rgb, rasterColor.rgb);
-    float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
-    float exposureMult = 1.0;
-    float3 tonemapped = (luminance * exposureMult) / ((luminance * exposureMult) + 1.0) * color;
-
-	// Currently lacking a full reverse-engineering of this part :(
-	uint var6 = (uint(abs(ScreenSize.x * input.texcoord0.x)) << 16u) + uint(abs(ScreenSize.y * input.texcoord0.y));
-    uint var7 = ((var6 ^ 61u) ^ (var6 >> 16u)) * 9u;
-    uint var8 = ((var7 >> 4u) ^ var7) * 668265261u;
-    float var9 = (1.0 / 510.0) - (float((var8 >> 15u) ^ var8) * 1.826122803319507603703186759958e-12f);
     float4 rasterizedInput = s_gRasterizedInputTexture.Sample(s_gRasterizedInputSampler, input.texcoord0);
-    float alpha = 1.0f - rasterizedInput.w;
 
-    return float4(rasterizedInput.rgb + ((var9 + color) * alpha), 1.0);
+    float3 luminance = dot(rasterColor.rgb, float3(0.2126, 0.7152, 0.0722));
+    float3 exposureMult = 1.0;
+    rasterColor.rgb *= exposureMult;
+
+    // reinhard tonemapping
+    // float3 tonemapped = rasterColor.rgb / (rasterColor.rgb + 1.0);
+    float3 tonemapped = rasterColor.rgb;
+    // blend rasterized and RT
+    float3 final = rasterizedInput.rgb + tonemapped * (1.0 - rasterizedInput.a);
+
+    return float4(final, 1.0);
 }
