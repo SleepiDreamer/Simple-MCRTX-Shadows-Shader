@@ -228,4 +228,12 @@ inline float3 screen(in float3 x, in float3 y)
     return 1 - (x - 1) * (y - 1);
 }
 
+inline bool AreMatricesEqual(float4x4 A, float4x4 B, float epsilon)
+{
+    return all(abs(A[0] - B[0]) < epsilon) &&
+           all(abs(A[1] - B[1]) < epsilon) &&
+           all(abs(A[2] - B[2]) < epsilon) &&
+           all(abs(A[3] - B[3]) < epsilon);
+}
+
 #endif

@@ -66,3 +66,19 @@ float3 hemisphereSample(inout uint seed, float3 normal)
         normal * cosTheta
     );
 }
+
+float2 diskSample(inout uint seed)
+{
+    float2 r = randFloat2(seed);
+    float phi = 2 * PI * r.x;
+    float rSqrt = sqrt(r.y);
+    return float2(rSqrt * cos(phi), rSqrt * sin(phi));
+}
+
+float3 diskSample(inout uint seed, float3 normal)
+{
+    float2 r = diskSample(seed);
+    float3 tangent = normalize(cross(normal, float3(0, 0, 1)));
+    float3 bitangent = normalize(cross(normal, tangent));
+    return tangent * r.x + bitangent * r.y;
+}

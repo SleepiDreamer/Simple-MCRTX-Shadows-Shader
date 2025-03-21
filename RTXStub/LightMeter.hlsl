@@ -21,6 +21,7 @@ void MeasureIncidentLight(uint3 launchIndex: SV_DispatchThreadID)
     float weight = 1.0;
 
     // Combine indirect and direct diffuse lighting to measure incoming light.
+#if 0
     float3 incomingLight = inputBufferDiffuse[samplingCoord].rgb;
     incomingLight += inputBufferSunLight[samplingCoord].rgb;
     incomingLight *= inputBufferPrimaryThroughput[samplingCoord].rgb;
@@ -28,6 +29,9 @@ void MeasureIncidentLight(uint3 launchIndex: SV_DispatchThreadID)
     bool isSky = inputBufferPrimaryPathLength[samplingCoord] == MAX_RAY_DISTANCE;
     if (isSky)
         incomingLight = inputBufferRawFinal[samplingCoord].rgb;
+#else
+    float3 incomingLight = 1..xxx;
+#endif
 
     int writeIndex = linearIndex + 3;
     outputBufferIncidentLight[writeIndex] = float4(incomingLight, weight);

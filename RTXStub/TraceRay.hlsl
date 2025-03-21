@@ -80,7 +80,9 @@ void TraceSecondaryRay(in RayDesc ray, out HitInfo hitInfo)
             }
         }
         else if (object.flags & objectFlagClouds)
+        {
             q.CommitNonOpaqueTriangleHit();
+        }
     }
 
     float committedHitT = q.CommittedRayT();

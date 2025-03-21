@@ -14,7 +14,7 @@ float2 computeObjectMotionVector(in float3 position, in float3 motion)
 
     // outReprojectedHitT = length(prevSteveSpacePos - g_view.previousViewOriginSteveSpace);
 
-    // Expressed as a UV difference in NDC coordinates.
+    // Expressed as a UV difference in NDC coordinates [-1, 1].
     float2 currentToPreviousNdcXy = prevNdcPos - ndcPos;
     return currentToPreviousNdcXy * float2(0.5f, -0.5f);
 }

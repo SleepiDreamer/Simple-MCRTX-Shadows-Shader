@@ -122,6 +122,7 @@
         "compute": "RayGen.hlsl"
       },
       "Reproject": {
+        // "entry_point": "Reproject",
         "compute": "Reprojection.hlsl"
       },
       "ReprojectSpecularOnly": {

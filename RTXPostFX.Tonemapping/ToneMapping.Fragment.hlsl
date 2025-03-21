@@ -57,13 +57,13 @@ float4 main(PSInput input) : SV_Target0 {
     float4 bloomColor = s_gBloomBufferTexture.Sample(s_gBloomBufferSampler, input.texcoord0);
     float4 rasterizedInput = s_gRasterizedInputTexture.Sample(s_gRasterizedInputSampler, input.texcoord0);
 
-    float3 luminance = dot(rasterColor.rgb, float3(0.2126, 0.7152, 0.0722));
-    float3 exposureMult = 1.0;
-    rasterColor.rgb *= exposureMult;
+    float exposureMult = 5.0;
+    float3 exposedColor = rasterColor.rgb * exposureMult;
+    float3 luminance = dot(exposedColor, float3(0.2126, 0.7152, 0.0722));
 
     // reinhard tonemapping
-    // float3 tonemapped = rasterColor.rgb / (rasterColor.rgb + 1.0);
-    float3 tonemapped = rasterColor.rgb;
+    float3 tonemapped = pow(exposedColor / (exposedColor + 1.0), 2.2);
+    // float3 tonemapped = rasterColor.rgb;
     // blend rasterized and RT
     float3 final = rasterizedInput.rgb + tonemapped * (1.0 - rasterizedInput.a);
 

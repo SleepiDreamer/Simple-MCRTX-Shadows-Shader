@@ -6,6 +6,8 @@
 #define TWO_PI 6.28318530718
 #define INV_PI 0.31830988618
 #define INV_TWO_PI 0.15915494309
+#define TO_RADIANS 0.01745329251
+#define TO_DEGREES 57.2957795131
 
 // Defines that must match the cpp code
 #define BGFX_CONFIG_MAX_VERTEX_BUFFERS 4096
