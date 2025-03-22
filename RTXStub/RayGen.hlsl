@@ -38,7 +38,7 @@ void ExplicitLightSamplingInline(uint2 launchIndex: SV_DispatchThreadID)
 
 static const float emissiveIntensity = 100.0;
 static const float sunSizeDeg = 0.53; // Real-world value is 0.53
-static const float sunIntensity = 3.0;
+static const float sunIntensity = 7.0;
 
 // The primary ray tracing pass, writing useful information to the g-buffers.
 [numthreads(4, 8, 1)]
@@ -104,7 +104,9 @@ void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID)
         if (object.flags & objectFlagSunOrMoon)
         { 
             // Sun/moon
+            outputBufferAlbedoAndRoughness[ipos] = float4(albedo, 0);
             outputBufferPositionAndHitT[ipos] = float4(hitPosition, MAX_RAY_DISTANCE);
+            outputBufferOpacityAndObjectCategory[ipos] = float2(opacity, object.objectCategory);
         }
     }
     else
@@ -124,6 +126,7 @@ void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID)
 
 float3 GetSunLight(float3 normal, float3 origin, uint randSeed)
 {    
+    // return float3(1, 1, 1);
     // Sample direction
     float3 dirToSun = g_view.directionToSun;
     float maxAngle = tan(sunSizeDeg * TO_RADIANS) / 2; // Maximum angle deviation
@@ -144,6 +147,7 @@ float3 GetSunLight(float3 normal, float3 origin, uint randSeed)
 #endif
     // Trace shadow ray
     ShadowPayload payload;
+    // payload.transmission = 1.0;
     TraceShadowRay(ray, payload);
 
     // float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
@@ -176,13 +180,14 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     // Surface properties
     float3 albedo = outputBufferAlbedoAndRoughness[ipos].rgb;
     float opacity = outputBufferOpacityAndObjectCategory[ipos].x;
+    float objectCategory = outputBufferOpacityAndObjectCategory[ipos].y;
     float3 emission = outputBufferEmissionAndMetalness[ipos].rgb;
     float3 normal = octToNdirSnorm(outputBufferNormal[ipos]);
     float roughness = outputBufferAlbedoAndRoughness[ipos].a;
     float metalness = outputBufferEmissionAndMetalness[ipos].a;
     float3 hitPosition = outputBufferPositionAndHitT[ipos].xyz;
     float primaryT = outputBufferPositionAndHitT[ipos].w;
-    float objectCategory = outputBufferOpacityAndObjectCategory[ipos].y;
+    float2 prevMotionVectors = outputBufferMotionVectors[ipos].xy;
 
     float3 totalRadiance = 0.0;
     float3 throughput = 1.0;
@@ -198,11 +203,14 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     if (primaryT >= MAX_RAY_DISTANCE) // Sky hit
     {
         terminate = true;
-        totalRadiance += sampleSky(getPrimaryRayDir(ndcCoords)) / skyIntensity;
-        // if (any(hitPosition > 0.1))
-        // {
-        //     totalRadiance += screen(sampleSky(normalize(hitPosition)), albedo);
-        // }
+        if (any(hitPosition > 0.1) && any(albedo))
+        {
+            totalRadiance += (albedo * 5.0) + (1.0 - albedo) * sampleSky(getPrimaryRayDir(ndcCoords)) / skyIntensity;
+        }
+        else
+        {
+            totalRadiance += sampleSky(getPrimaryRayDir(ndcCoords)) / skyIntensity;
+        }
     }
     totalRadiance += emission + albedo * GetSunLight(normal, hitPosition, randSeed);
     throughput *= albedo;
@@ -258,7 +266,6 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     {
         finalColour = lerp(finalColour, outputBufferPreviousSunLightShadow[ipos], 0.98);
     }
-
     outputBufferPreviousSunLightShadow[ipos] = finalColour;
     outputBufferRawFinal[ipos] = finalColour;
 

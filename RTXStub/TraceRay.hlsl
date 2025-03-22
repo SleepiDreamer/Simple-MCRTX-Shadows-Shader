@@ -151,6 +151,7 @@ void TraceThroughputRay(in RayDesc ray, out float3 throughput)
 // Shadow ray traversal logic.
 void TraceShadowRay(in RayDesc ray, out ShadowPayload payload)
 {
+#if 0 // original code
     RayQuery<RAYFLAGS> q;
     q.TraceRayInline(SceneBVH, RAY_FLAG_NONE, INSTANCE_MASK_SHADOW, ray);
 
@@ -183,6 +184,61 @@ void TraceShadowRay(in RayDesc ray, out ShadowPayload payload)
     }
 
     payload.transmission = q.CommittedStatus() == COMMITTED_NOTHING ? transmission : 0;
+#else // updated code to fix water transmission crash
+    RayQuery<RAYFLAGS> q;
+    q.TraceRayInline(SceneBVH, RAY_FLAG_NONE, INSTANCE_MASK_SHADOW, ray);
+
+    float3 transmission = 1;
+
+    while (q.Proceed())
+    {
+        uint category = q.CandidateInstanceID();
+        ObjectInstance object = objectInstances[q.CandidateInstanceIndex()];
+        bool isCloud = object.flags & objectFlagClouds;
+        if (category == OBJECT_CATEGORY_ALPHA_TEST)
+        {
+            if (AlphaTestHitLogic(q.CandidateInstanceIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics()))
+            {
+                q.CommitNonOpaqueTriangleHit();
+            }
+        }
+        else if (category == OBJECT_CATEGORY_ALPHA_BLEND && !isCloud)
+        {
+            transmission *= GetAlphaBlendTransmission(q.CandidateInstanceIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics());
+            if (!any(transmission))
+                q.CommitNonOpaqueTriangleHit();
+        }
+        else
+        {
+            // // Thanks, ChatGPT :)
+            // // Get the 2D barycentrics (e.g., (u,v)) and compute the third coordinate.
+            // float2 bary = q.CandidateTriangleBarycentrics();
+            // float third = 1.0f - (bary.x + bary.y);
+            
+            // // Validate that all barycentrics are in the [0,1] range.
+            // // Additionally, for a valid triangle hit, the sum of u and v should be <= 1.
+            // if (bary.x < 0.0f || bary.x > 1.0f ||
+            //     bary.y < 0.0f || bary.y > 1.0f ||
+            //     third < 0.0f  || third > 1.0f)
+            // {
+            //     // Skip this candidate if the barycentrics are invalid.
+            //     continue;
+            // }
+
+            // // Construct a float3 from the two barycentrics and the computed third value.
+            // float3 barycentricCoordinates = { bary.x, bary.y, third };
+
+            // Now safely call GetWaterTransmission with validated barycentrics.
+            transmission *= GetWaterTransmission(q.CandidateInstanceIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics());
+            if (!any(transmission))
+            {
+                q.CommitNonOpaqueTriangleHit();
+            }
+        }
+    }
+
+    payload.transmission = q.CommittedStatus() == COMMITTED_NOTHING ? transmission : 0;
+#endif
 }
 
 #endif 
