@@ -1,5 +1,6 @@
 #include "Atmosphere.hlsl"
 #include "Camera.hlsl"
+#include "BRDF.hlsl"
 #include "Common.hlsl"
 #include "Random.hlsl"
 #include "Motion.hlsl"
@@ -151,7 +152,7 @@ float3 GetSunLight(float3 normal, float3 origin, uint randSeed)
     TraceShadowRay(ray, payload);
 
     // float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
-    return sunIntensity * sunFade * payload.transmission;
+    return sunIntensity * sunFade * payload.transmission * g_view.sunColour;
 }
 
 
@@ -169,12 +170,21 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     }
 
 #if 0 // Debug view
+#if 0 // Multiple debug
     if (uv.x > 0.0) outputBufferRawFinal[ipos] = float4((octToNdirSnorm(outputBufferNormal[ipos]) + 1) / 2, 1.0);
     if (uv.x > 0.2) outputBufferRawFinal[ipos] = outputBufferEmissionAndMetalness[ipos];
     if (uv.x > 0.4) outputBufferRawFinal[ipos] = outputBufferAlbedoAndRoughness[ipos];
     if (uv.x > 0.6) outputBufferRawFinal[ipos] = outputBufferPositionAndHitT[ipos];
     if (uv.x > 0.8) outputBufferRawFinal[ipos] = float4(outputBufferOpacityAndObjectCategory[ipos], 0.0, 1.0);
     return;
+#else // Splitscreen
+    if (uv.x > 0.5) 
+    {
+        uint2 samplePos = uint2(ipos.x - g_view.renderResolution.x / 2.0, ipos.y);
+        outputBufferRawFinal[ipos] = outputBufferPreviousSunLightShadow[samplePos];
+        return;
+    }
+#endif
 #endif
 
     // Surface properties
@@ -205,17 +215,21 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         terminate = true;
         if (any(hitPosition > 0.1) && any(albedo))
         {
-            totalRadiance += (albedo * 5.0) + (1.0 - albedo) * sampleSky(getPrimaryRayDir(ndcCoords)) / skyIntensity;
+            totalRadiance += (albedo * 15.0) + (1.0 - albedo) * sampleSky(getPrimaryRayDir(ndcCoords)) / skyIntensity;
         }
         else
         {
             totalRadiance += sampleSky(getPrimaryRayDir(ndcCoords)) / skyIntensity;
         }
     }
-    totalRadiance += emission + albedo * GetSunLight(normal, hitPosition, randSeed);
+    float3 sunLight = GetSunLight(normal, hitPosition, randSeed);
+    float NdotSun = saturate(dot(normal, g_view.directionToSun));
+    float3 brdfSun = albedo / PI;
+    float3 directSun = brdfSun * sunLight * NdotSun;
+    totalRadiance += throughput * directSun;
     throughput *= albedo;
 
-    for (int bounce = 0; bounce < 3; bounce++)
+    for (int bounce = 0; bounce < 1; bounce++)
     {
         if (terminate) break;
         ray.Origin = offsetRay(hitPosition, normal);
@@ -252,22 +266,52 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         }
         else
         {
-            float3 sunlight = GetSunLight(normal, hitPosition, randSeed) * max(0.0, dot(normal, g_view.directionToSun));
+            float3 wo;
+            float pdf;
+            float3 brdfValue = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
+            float cosTheta = saturate(dot(wo, normal));
 
-            float3 radiance = emission + albedo * sunlight;
+            // For direct sunlight:
+            float3 sunlight = GetSunLight(normal, hitPosition, randSeed);
+            float NdotSun = saturate(dot(normal, g_view.directionToSun));
+
+            // Evaluate the BRDF for the sun's incoming direction.
+            float3 brdfSun = albedo / PI;
+
+            // Combine with cosine term:
+            float3 directSun = brdfSun * sunlight * NdotSun;
+
+            // Now, your total radiance might be:
+            float3 radiance = emission + directSun;
 
             totalRadiance += throughput * radiance;
-            throughput *= albedo * opacity;
+            throughput *= (brdfValue * cosTheta) / pdf * opacity;
         }
     }
 
-    float4 finalColour = float4(totalRadiance, 1.0);
     if (AreMatricesEqual(g_view.viewProj, g_view.prevViewProj, 1e-6)) 
     {
-        finalColour = lerp(finalColour, outputBufferPreviousSunLightShadow[ipos], 0.98);
+        float4 prevFrame = outputBufferPreviousSunLightShadow[ipos];
+        float3 prevColour = prevFrame.rgb;
+        
+        uint numFramesAccumulating;
+        if (outputBufferPreviousSunLightShadow[ipos].a == 0)
+        {
+            numFramesAccumulating = 1;
+        }
+        else
+        {
+            numFramesAccumulating = uint(prevFrame.a) + 1;
+        }
+        outputBufferPreviousSunLightShadow[ipos].rgb += totalRadiance;
+        outputBufferPreviousSunLightShadow[ipos].a = numFramesAccumulating;
+        outputBufferRawFinal[ipos] = float4(outputBufferPreviousSunLightShadow[ipos].rgb / (numFramesAccumulating + 1), 1.0);
     }
-    outputBufferPreviousSunLightShadow[ipos] = finalColour;
-    outputBufferRawFinal[ipos] = finalColour;
+    else
+    {
+        outputBufferRawFinal[ipos] = float4(totalRadiance, 1);
+        outputBufferPreviousSunLightShadow[ipos] = float4(totalRadiance, 0);
+    }
 
 //     float3 finalColour = 0.0f;
 //     float3 totalRadiance = 0.0f;

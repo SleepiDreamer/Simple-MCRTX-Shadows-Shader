@@ -1,3 +1,6 @@
+#ifndef _RANDOM_HLSL_
+#define _RANDOM_HLSL_
+
 #include "Common.hlsl"
 
 uint pcg_hash(uint state) 
@@ -82,3 +85,14 @@ float3 diskSample(inout uint seed, float3 normal)
     float3 bitangent = normalize(cross(normal, tangent));
     return tangent * r.x + bitangent * r.y;
 }
+
+float3 cosineSampleHemisphere(float2 u) {
+    float r = sqrt(u.x);
+    float theta = 2.0f * PI * u.y;
+    float x = r * cos(theta);
+    float y = r * sin(theta);
+    float z = sqrt(max(0.0f, 1.0f - u.x)); // upper hemisphere
+    return float3(x, y, z);
+}
+
+#endif

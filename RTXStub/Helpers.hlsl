@@ -236,4 +236,18 @@ inline bool AreMatricesEqual(float4x4 A, float4x4 B, float epsilon)
            all(abs(A[3] - B[3]) < epsilon);
 }
 
+// Transform a vector from tangent space to world space
+float3 TangentToWorld(float3 v, float3 n)
+{
+    float3 tangent, bitangent;
+    if (abs(n.x) > abs(n.z)) {
+        tangent = normalize(float3(-n.y, n.x, 0.0f));
+    } else {
+        tangent = normalize(float3(0.0f, -n.z, n.y));
+    }
+    bitangent = cross(n, tangent);
+    
+    return v.x * tangent + v.y * bitangent + v.z * n;
+}
+
 #endif

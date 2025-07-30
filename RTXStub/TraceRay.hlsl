@@ -210,25 +210,6 @@ void TraceShadowRay(in RayDesc ray, out ShadowPayload payload)
         }
         else
         {
-            // // Thanks, ChatGPT :)
-            // // Get the 2D barycentrics (e.g., (u,v)) and compute the third coordinate.
-            // float2 bary = q.CandidateTriangleBarycentrics();
-            // float third = 1.0f - (bary.x + bary.y);
-            
-            // // Validate that all barycentrics are in the [0,1] range.
-            // // Additionally, for a valid triangle hit, the sum of u and v should be <= 1.
-            // if (bary.x < 0.0f || bary.x > 1.0f ||
-            //     bary.y < 0.0f || bary.y > 1.0f ||
-            //     third < 0.0f  || third > 1.0f)
-            // {
-            //     // Skip this candidate if the barycentrics are invalid.
-            //     continue;
-            // }
-
-            // // Construct a float3 from the two barycentrics and the computed third value.
-            // float3 barycentricCoordinates = { bary.x, bary.y, third };
-
-            // Now safely call GetWaterTransmission with validated barycentrics.
             transmission *= GetWaterTransmission(q.CandidateInstanceIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics());
             if (!any(transmission))
             {

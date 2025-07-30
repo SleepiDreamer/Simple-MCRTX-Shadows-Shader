@@ -65,6 +65,7 @@ float4 main(PSInput input) : SV_Target0 {
     float3 tonemapped = pow(exposedColor / (exposedColor + 1.0), 1.0);
     // blend rasterized and RT
     float3 final = rasterizedInput.rgb + tonemapped * (1.0 - rasterizedInput.a);
+    // float3 final = exposedColor;
 
     return float4(final, 1.0);
 }
