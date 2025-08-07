@@ -52,6 +52,14 @@ Texture2D<float4> s_gBloomBufferTexture     : register(CONCAT(t, s_gBloomBuffer_
 //     return float4(rasterizedInput.rgb + ((var9 + color) * alpha), 1.0);
 // }
 
+float3 gamma_correct(float3 linearCol)
+{
+    bool3 cutoff = linearCol < 0.0031308;
+    float3 higher = 1.055 * pow(linearCol, 1.0 / 2.4) - 0.055;
+    float3 lower = linearCol * 12.92;
+    return lerp(higher, lower, cutoff);
+}
+
 float4 main(PSInput input) : SV_Target0 {
     float4 rasterColor = s_RasterColorTexture.Sample(s_RasterColorSampler, input.texcoord0);
     float4 bloomColor = s_gBloomBufferTexture.Sample(s_gBloomBufferSampler, input.texcoord0);
@@ -64,7 +72,7 @@ float4 main(PSInput input) : SV_Target0 {
     // reinhard tonemapping
     float3 tonemapped = pow(exposedColor / (exposedColor + 1.0), 1.0);
     // blend rasterized and RT
-    float3 final = rasterizedInput.rgb + tonemapped * (1.0 - rasterizedInput.a);
+    float3 final = gamma_correct(rasterizedInput.rgb + tonemapped * (1.0 - rasterizedInput.a));
     // float3 final = exposedColor;
 
     return float4(final, 1.0);

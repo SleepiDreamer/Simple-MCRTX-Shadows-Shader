@@ -7,7 +7,7 @@
             "label": "Build RTX Shader",
             "type": "shell",
             // build, then copy the files inside of output to Minecraft material folder
-            "command": "lazurite build ./ -o output && cp -r output/* C:/Users/remia/AppData/Roaming/.minecraft_bedrock/versions/4a28ca9f-6646-47ba-9185-5c7d7b50e436/data/renderer/materials/ && explorer.exe shell:appsFolder\\Microsoft.MinecraftUWP_8wekyb3d8bbwe!App",
+            "command": "lazurite build ./ -o output && cp -r output/* C:/Users/remia/AppData/Roaming/.minecraft_bedrock/versions/302e73b6-83ad-4936-9f84-e72bccb04f8a/data/renderer/materials/ && explorer.exe shell:appsFolder\\Microsoft.MinecraftUWP_8wekyb3d8bbwe!App",
             // "command": "lazurite build ./ -o output && cp -r output/* C:/Users/remia/AppData/Roaming/.minecraft_bedrock/versions/4a28ca9f-6646-47ba-9185-5c7d7b50e436/data/renderer/materials/",
             "problemMatcher": [],
             "group": {

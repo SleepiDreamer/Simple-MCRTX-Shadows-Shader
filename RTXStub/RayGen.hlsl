@@ -38,8 +38,8 @@ void ExplicitLightSamplingInline(uint2 launchIndex: SV_DispatchThreadID)
 }
 
 static const float emissiveIntensity = 100.0;
-static const float sunSizeDeg = 0.53; // Real-world value is 0.53
-static const float sunIntensity = 7.0;
+static const float sunSizeDeg = 0.53 * 2.5; // Real-world value is 0.53
+static const float sunIntensity = 15.0;
 
 // The primary ray tracing pass, writing useful information to the g-buffers.
 [numthreads(4, 8, 1)]
@@ -119,13 +119,13 @@ void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID)
         outputBufferOpacityAndObjectCategory[ipos] = float2(opacity, object.objectCategory);
         outputBufferNormal[ipos] = ndirToOctSnorm(normal);
         outputBufferObjectInstanceIndex[ipos] = currentHitInfo.instIdx;
-        outputBufferMotionVectors[ipos] = computeObjectMotionVector(hitPosition, motion);
-        // outputBufferMotionVectors[ipos] = computeEnvironmentMotionVector(ray.Direction) + computeObjectMotionVector(worldPos, motion);
+        //outputBufferMotionVectors[ipos] = computeObjectMotionVector(hitPosition, motion);
+        outputBufferMotionVectors[ipos] = computeEnvironmentMotionVector(ray.Direction) + computeObjectMotionVector(worldPos, motion);
     }
 }
 
 
-float3 GetSunLight(float3 normal, float3 origin, uint randSeed)
+float3 sampleSun(float3 normal, float3 origin, uint randSeed)
 {    
     // return float3(1, 1, 1);
     // Sample direction
@@ -181,14 +181,14 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     if (uv.x > 0.5) 
     {
         uint2 samplePos = uint2(ipos.x - g_view.renderResolution.x / 2.0, ipos.y);
-        outputBufferRawFinal[ipos] = outputBufferPreviousSunLightShadow[samplePos];
+        outputBufferRawFinal[ipos] = float4(outputBufferMotionVectors[samplePos], 0.0, 1.0);
         return;
     }
 #endif
 #endif
 
     // Surface properties
-    float3 albedo = outputBufferAlbedoAndRoughness[ipos].rgb;
+    float3 albedo = pow(outputBufferAlbedoAndRoughness[ipos].rgb, 2.2);
     float opacity = outputBufferOpacityAndObjectCategory[ipos].x;
     float objectCategory = outputBufferOpacityAndObjectCategory[ipos].y;
     float3 emission = outputBufferEmissionAndMetalness[ipos].rgb;
@@ -215,21 +215,30 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         terminate = true;
         if (any(hitPosition > 0.1) && any(albedo))
         {
-            totalRadiance += (albedo * 15.0) + (1.0 - albedo) * sampleSky(getPrimaryRayDir(ndcCoords)) / skyIntensity;
+            totalRadiance += (albedo * 15.0) + (1.0 - albedo) * sampleSky(getPrimaryRayDir(ndcCoords)) * skyIntensity;
         }
         else
         {
-            totalRadiance += sampleSky(getPrimaryRayDir(ndcCoords)) / skyIntensity;
+            totalRadiance += sampleSky(getPrimaryRayDir(ndcCoords)) * skyIntensity;
         }
     }
-    float3 sunLight = GetSunLight(normal, hitPosition, randSeed);
+    float3 sunLight = sampleSun(normal, hitPosition, randSeed);
     float NdotSun = saturate(dot(normal, g_view.directionToSun));
-    float3 brdfSun = albedo / PI;
-    float3 directSun = brdfSun * sunLight * NdotSun;
-    totalRadiance += throughput * directSun;
-    throughput *= albedo;
+    if (metalness == 0.0) // Dielectric surface
+    {
+        float3 brdfSun = albedo / PI;
+        float3 directSun = brdfSun * sunLight * NdotSun;
+        totalRadiance += emission + throughput * directSun;
+        throughput *= albedo;
+    }
+    else // Metallic surface
+    {
+        totalRadiance += emission * throughput;
+        throughput *= albedo * opacity;
+    }
 
-    for (int bounce = 0; bounce < 1; bounce++)
+
+    for (int bounce = 0; bounce < 2; bounce++)
     {
         if (terminate) break;
         ray.Origin = offsetRay(hitPosition, normal);
@@ -245,7 +254,7 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         GeometryInfo geometryInfo = getGeometryInfo(currentHitInfo, ray.Direction);
         SurfaceInfo surfaceInfo = getSurfaceInfo(object, geometryInfo);
         
-        albedo = surfaceInfo.albedo.rgb;
+        albedo = pow(surfaceInfo.albedo.rgb, 2.2);
         opacity = surfaceInfo.opacity;
         emission = surfaceInfo.emission.rgb * emissiveIntensity;
         normal = surfaceInfo.normal;
@@ -255,40 +264,64 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         if (!currentHitInfo.hasHit())
         { 
             // Sky hit
-            totalRadiance += throughput * sampleSky(ray.Direction);
+            totalRadiance += throughput * sampleSky(ray.Direction) * skyIntensity;
             break;
         }
         if (object.flags & objectFlagSunOrMoon)
         { 
             // Sun/Moon hit
-            totalRadiance += throughput * sampleSky(ray.Direction); // sample sky instead
+            totalRadiance += throughput * sampleSky(ray.Direction) * skyIntensity; // sample sky instead
             break;
         }
         else
         {
-            float3 wo;
-            float pdf;
-            float3 brdfValue = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
-            float cosTheta = saturate(dot(wo, normal));
+            if (metalness == 0.0) // Dielectric surface
+            {
+                float3 wo;
+                float pdf;
+                float3 brdfValue = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
+                float cosTheta = saturate(dot(wo, normal));
 
-            // For direct sunlight:
-            float3 sunlight = GetSunLight(normal, hitPosition, randSeed);
-            float NdotSun = saturate(dot(normal, g_view.directionToSun));
+                float3 sunlight = sampleSun(normal, hitPosition, randSeed);
+                float NdotSun = saturate(dot(normal, g_view.directionToSun));
+                float3 brdfSun = albedo / PI;
 
-            // Evaluate the BRDF for the sun's incoming direction.
-            float3 brdfSun = albedo / PI;
+                float3 directSun = brdfSun * sunlight * NdotSun;
 
-            // Combine with cosine term:
-            float3 directSun = brdfSun * sunlight * NdotSun;
+                float3 radiance = emission + directSun;
 
-            // Now, your total radiance might be:
-            float3 radiance = emission + directSun;
+                totalRadiance += throughput * radiance;
+                throughput *= (brdfValue * cosTheta) / pdf * opacity;
+            }
 
-            totalRadiance += throughput * radiance;
-            throughput *= (brdfValue * cosTheta) / pdf * opacity;
+            else // Metallic surface
+            {
+                totalRadiance += throughput * emission;
+                throughput *= albedo * opacity;
+            }
         }
+
     }
 
+
+
+#if 0 // REPROJECTION
+    int2 prevUV = ipos - prevMotionVectors * 1.0 * g_view.renderResolution;
+    // float3 prevFramePos = outputBufferPreviousSunLightShadow[uint2(0, 0)].xyz;
+    // float scalar = dot(lastFramePos - steveWorldPos, float3(1, 1, 1));
+    // bool movedSinceLastFrame = scalar > 0.5;
+
+    float3 reprojectedColor = lerp(totalRadiance, outputBufferPreviousSunLightShadow[prevUV].xyz, 0.99);
+    outputBufferRawFinal[ipos] = float4(reprojectedColor, 1.0);
+
+    if (uv.x > 0.5)
+    {
+        outputBufferRawFinal[ipos] = float4(outputBufferPreviousSunLightShadow[ipos].rgba);
+    }
+
+    outputBufferPreviousSunLightShadow[ipos] = float4(reprojectedColor, primaryT);
+    // outputBufferPreviousSunLightShadow[ipos] = float4(1, 1, 1, 1);
+#else
     if (AreMatricesEqual(g_view.viewProj, g_view.prevViewProj, 1e-6)) 
     {
         float4 prevFrame = outputBufferPreviousSunLightShadow[ipos];
@@ -312,6 +345,7 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         outputBufferRawFinal[ipos] = float4(totalRadiance, 1);
         outputBufferPreviousSunLightShadow[ipos] = float4(totalRadiance, 0);
     }
+#endif
 
 //     float3 finalColour = 0.0f;
 //     float3 totalRadiance = 0.0f;
@@ -366,7 +400,7 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
 //         }
 //         else
 //         {
-//             float3 sunlight = GetSunLight(normal, hitPosition, randSeed) * max(0.0, dot(normal, g_view.directionToSun));
+//             float3 sunlight = sampleSun(normal, hitPosition, randSeed) * max(0.0, dot(normal, g_view.directionToSun));
 
 //             float3 radiance = emission + albedo * sunlight;
 

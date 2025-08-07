@@ -6,7 +6,7 @@
 
 static const float3 zenithColour = float3(0.5, 0.7, 1.0);
 static const float3 nadirColour = float3(0.7, 0.7, 0.7);
-static const float skyIntensity = 2.0;
+static const float skyIntensity = 1.0;
 
 // Sample the sky colour according to a ray direction.
 float3 sampleSky(in float3 direction) {
@@ -16,7 +16,7 @@ float3 sampleSky(in float3 direction) {
 
     // Multiply by half of max incident light from sun, since its max is 2.0
     // This darkens the sky when the sun intensity is low
-    return lerp(nadirColour, zenithColour, t) * max3(g_view.sunColour) * 0.5 * skyIntensity;
+    return pow(lerp(nadirColour, zenithColour, t) * max3(g_view.sunColour) * 0.5 * skyIntensity, 2.2);
 }
 
 #endif
