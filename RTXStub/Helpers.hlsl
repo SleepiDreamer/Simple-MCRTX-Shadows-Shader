@@ -250,4 +250,9 @@ float3 TangentToWorld(float3 v, float3 n)
     return v.x * tangent + v.y * bitangent + v.z * n;
 }
 
+float3 halfwayVector(float3 v1, float3 v2)
+{
+    return normalize(v1 + v2);
+}
+
 #endif

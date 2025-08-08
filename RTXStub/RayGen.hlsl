@@ -119,17 +119,23 @@ void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID)
         outputBufferOpacityAndObjectCategory[ipos] = float2(opacity, object.objectCategory);
         outputBufferNormal[ipos] = ndirToOctSnorm(normal);
         outputBufferObjectInstanceIndex[ipos] = currentHitInfo.instIdx;
-        //outputBufferMotionVectors[ipos] = computeObjectMotionVector(hitPosition, motion);
-        outputBufferMotionVectors[ipos] = computeEnvironmentMotionVector(ray.Direction) + computeObjectMotionVector(worldPos, motion);
+        outputBufferMotionVectors[ipos] = computeObjectMotionVector(hitPosition, motion);
+        // outputBufferMotionVectors[ipos] = computeEnvironmentMotionVector(ray.Direction) + computeObjectMotionVector(worldPos, motion);
     }
 }
 
 
 float3 sampleSun(float3 normal, float3 origin, uint randSeed)
 {    
-    // return float3(1, 1, 1);
-    // Sample direction
     float3 dirToSun = g_view.directionToSun;
+    float3 sunColor = g_view.sunColour;
+    bool moon = false;
+    if (dirToSun.y < 0.0)
+    {
+        moon = true;
+        dirToSun *= -1.0;
+        sunColor = float3(0.8, 0.8, 1.0);
+    }
     float maxAngle = tan(sunSizeDeg * TO_RADIANS) / 2; // Maximum angle deviation
     float3 sampleAngle = normalize(dirToSun + diskSample(randSeed, dirToSun) * maxAngle); // Add disk offset
 
@@ -152,7 +158,7 @@ float3 sampleSun(float3 normal, float3 origin, uint randSeed)
     TraceShadowRay(ray, payload);
 
     // float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
-    return sunIntensity * sunFade * payload.transmission * g_view.sunColour;
+    return sunIntensity * sunFade * payload.transmission * pow(sunColor, 1.5);
 }
 
 
@@ -178,10 +184,10 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     if (uv.x > 0.8) outputBufferRawFinal[ipos] = float4(outputBufferOpacityAndObjectCategory[ipos], 0.0, 1.0);
     return;
 #else // Splitscreen
-    if (uv.x > 0.5) 
+    if (uv.x > 0.0) 
     {
         uint2 samplePos = uint2(ipos.x - g_view.renderResolution.x / 2.0, ipos.y);
-        outputBufferRawFinal[ipos] = float4(outputBufferMotionVectors[samplePos], 0.0, 1.0);
+        outputBufferRawFinal[ipos] = float4((outputBufferMotionVectors[ipos]), 0.0, 1.0);
         return;
     }
 #endif
@@ -206,6 +212,7 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
 
     RayDesc ray;
     ray.TMax = MAX_RAY_DISTANCE;
+    ray.Direction = getPrimaryRayDir(ndcCoords);
     HitInfo currentHitInfo;
     currentHitInfo.clear();
 
@@ -226,25 +233,45 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     float NdotSun = saturate(dot(normal, g_view.directionToSun));
     if (metalness == 0.0) // Dielectric surface
     {
+        float3 wo = float3(0, 0, 0);
+        float pdf = 0.0;
+        float3 brdf_d = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
+        float cosTheta = saturate(dot(wo, normal));
+
+        float3 sunlight = sampleSun(normal, hitPosition, randSeed);
+        float NdotSun = saturate(dot(normal, g_view.directionToSun));
         float3 brdfSun = albedo / PI;
-        float3 directSun = brdfSun * sunLight * NdotSun;
-        totalRadiance += emission + throughput * directSun;
-        throughput *= albedo;
+
+        float3 directSun = brdfSun * sunlight * NdotSun;
+
+        float3 radiance = emission + directSun;
+
+        totalRadiance += throughput * radiance;
+        throughput *= (brdf_d * cosTheta) / pdf * opacity;
+
+        ray.Direction = wo;
     }
     else // Metallic surface
     {
-        totalRadiance += emission * throughput;
-        throughput *= albedo * opacity;
+        float3 wo = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
+        float pdf = 1.0; // Simplified for metallic surfaces
+
+        ray.Direction = wo;
+        totalRadiance += throughput * emission;
+        throughput *= albedo * opacity * pdf;
     }
 
 
-    for (int bounce = 0; bounce < 2; bounce++)
+    for (int bounce = 0; bounce < 4; bounce++)
     {
-        if (terminate) break;
+        if (all(ray.Direction == 0.0)) 
+        {
+            break;
+        }
         ray.Origin = offsetRay(hitPosition, normal);
-        ray.Direction = hemisphereSample(randSeed, normal);
         ray.TMin = 0.0f;
         TracePrimaryRay(ray, currentHitInfo);
+        if (terminate) break;
         
         // Load surface properties
         hitT = currentHitInfo.hitT;
@@ -277,8 +304,8 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         {
             if (metalness == 0.0) // Dielectric surface
             {
-                float3 wo;
-                float pdf;
+                float3 wo = float3(0, 0, 0);
+                float pdf = 0.0;
                 float3 brdfValue = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
                 float cosTheta = saturate(dot(wo, normal));
 
@@ -292,12 +319,20 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
 
                 totalRadiance += throughput * radiance;
                 throughput *= (brdfValue * cosTheta) / pdf * opacity;
+
+                // ray.Direction = hemisphereSample(randSeed, normal);
+                ray.Direction = wo;
+                // ray.Direction = reflect(ray.Direction, normal);
             }
 
             else // Metallic surface
             {
+                float3 wo = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
+                float pdf = 1.0; // Simplified for metallic surfaces
+
+                ray.Direction = wo;
                 totalRadiance += throughput * emission;
-                throughput *= albedo * opacity;
+                throughput *= albedo * opacity * pdf;
             }
         }
 
@@ -306,23 +341,21 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
 
 
 #if 0 // REPROJECTION
-    int2 prevUV = ipos - prevMotionVectors * 1.0 * g_view.renderResolution;
-    // float3 prevFramePos = outputBufferPreviousSunLightShadow[uint2(0, 0)].xyz;
-    // float scalar = dot(lastFramePos - steveWorldPos, float3(1, 1, 1));
-    // bool movedSinceLastFrame = scalar > 0.5;
+    int2 prevIpos = int2(float2(ipos) + float2(prevMotionVectors));
 
-    float3 reprojectedColor = lerp(totalRadiance, outputBufferPreviousSunLightShadow[prevUV].xyz, 0.99);
+    float3 reprojectedColor = lerp(totalRadiance, outputBufferPreviousSunLightShadow[prevIpos].xyz, 0.99);
     outputBufferRawFinal[ipos] = float4(reprojectedColor, 1.0);
 
-    if (uv.x > 0.5)
+    if (uv.x > 1.0)
     {
-        outputBufferRawFinal[ipos] = float4(outputBufferPreviousSunLightShadow[ipos].rgba);
+        // outputBufferRawFinal[ipos] = float4((prevIpos - ipos) / g_view.renderResolution, 0.0, 1.0);
+        outputBufferRawFinal[ipos] = float4(prevMotionVectors, 0.0, 1.0);
     }
 
     outputBufferPreviousSunLightShadow[ipos] = float4(reprojectedColor, primaryT);
     // outputBufferPreviousSunLightShadow[ipos] = float4(1, 1, 1, 1);
 #else
-    if (AreMatricesEqual(g_view.viewProj, g_view.prevViewProj, 1e-6)) 
+    if (AreMatricesEqual(g_view.viewProj, g_view.prevViewProj, 1e-6) && all(g_view.steveSpaceDelta == 0.0) ) 
     {
         float4 prevFrame = outputBufferPreviousSunLightShadow[ipos];
         float3 prevColour = prevFrame.rgb;

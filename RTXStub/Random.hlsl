@@ -70,6 +70,34 @@ float3 hemisphereSample(inout uint seed, float3 normal)
     );
 }
 
+float3 sphereSurfaceSample(inout uint seed)
+{
+    float2 r = randFloat2(seed);
+    float theta = TWO_PI * r.x;
+    float phi = acos(1.0f - 2.0f * r.y);
+
+    float x = sin(phi) * cos(theta);
+    float y = sin(phi) * sin(theta);
+    float z = cos(phi);
+
+    return float3(x, y, z);
+}
+
+float3 sphereSample(inout uint seed)
+{
+    float2 r = randFloat2(seed);
+    float theta = TWO_PI * r.x;
+    float phi = acos(1.0f - 2.0f * r.y);
+
+    float r2 = pow(randFloat(seed), 1.0f / 3.0f);
+
+    float x = sin(phi) * cos(theta) * r2;
+    float y = sin(phi) * sin(theta) * r2;
+    float z = cos(phi) * r2;
+
+    return float3(x, y, z);
+}
+
 float2 diskSample(inout uint seed)
 {
     float2 r = randFloat2(seed);

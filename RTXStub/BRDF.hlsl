@@ -15,3 +15,12 @@ float3 SampleBRDF(float3 wi, float3 n, float3 albedo, out float3 wo, out float p
     
     return brdfValue;
 }
+
+float ggxNormalDistribution(float3 n, float3 h, float roughness)
+{
+    float cosTheta = dot(n, h);
+    float tanTheta = sqrt(max(0.0f, 1.0f - cosTheta * cosTheta)) / cosTheta;
+    float alpha2 = roughness * roughness;
+    
+    return alpha2 / (PI * pow(cosTheta * cosTheta * (alpha2 + tanTheta * tanTheta), 2));
+}
