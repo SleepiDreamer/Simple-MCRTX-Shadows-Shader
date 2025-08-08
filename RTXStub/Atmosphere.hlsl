@@ -6,7 +6,6 @@
 
 static const float3 zenithColour = float3(0.5, 0.7, 1.0);
 static const float3 nadirColour = float3(0.7, 0.7, 0.7);
-static const float skyIntensity = 1.0;
 
 // Sample the sky colour according to a ray direction.
 float3 sampleSky(in float3 direction) {

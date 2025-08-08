@@ -39,7 +39,6 @@ void ExplicitLightSamplingInline(uint2 launchIndex: SV_DispatchThreadID)
 
 static const float emissiveIntensity = 100.0;
 static const float sunSizeDeg = 0.53 * 2.5; // Real-world value is 0.53
-static const float sunIntensity = 15.0;
 
 // The primary ray tracing pass, writing useful information to the g-buffers.
 [numthreads(4, 8, 1)]
@@ -125,16 +124,13 @@ void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID)
 }
 
 
-float3 sampleSun(float3 normal, float3 origin, uint randSeed)
+float3 sampleSun(float3 normal, float3 origin, out float3 transmission, uint randSeed)
 {    
     float3 dirToSun = g_view.directionToSun;
     float3 sunColor = g_view.sunColour;
-    bool moon = false;
-    if (dirToSun.y < 0.0)
+    if (isSunActuallyMoon())
     {
-        moon = true;
-        dirToSun *= -1.0;
-        sunColor = float3(0.8, 0.8, 1.0);
+        sunColor = float3(0.8, 0.8, 1.0) * 0.2;
     }
     float maxAngle = tan(sunSizeDeg * TO_RADIANS) / 2; // Maximum angle deviation
     float3 sampleAngle = normalize(dirToSun + diskSample(randSeed, dirToSun) * maxAngle); // Add disk offset
@@ -158,6 +154,7 @@ float3 sampleSun(float3 normal, float3 origin, uint randSeed)
     TraceShadowRay(ray, payload);
 
     // float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
+    transmission = payload.transmission;
     return sunIntensity * sunFade * payload.transmission * pow(sunColor, 1.5);
 }
 
@@ -187,7 +184,8 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     if (uv.x > 0.0) 
     {
         uint2 samplePos = uint2(ipos.x - g_view.renderResolution.x / 2.0, ipos.y);
-        outputBufferRawFinal[ipos] = float4((outputBufferMotionVectors[ipos]), 0.0, 1.0);
+        // outputBufferRawFinal[ipos] = float4((outputBufferMotionVectors[ipos]), 0.0, 1.0);
+        outputBufferRawFinal[ipos] = float4(g_view.sunColour, 1.0);
         return;
     }
 #endif
@@ -229,40 +227,61 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
             totalRadiance += sampleSky(getPrimaryRayDir(ndcCoords)) * skyIntensity;
         }
     }
-    float3 sunLight = sampleSun(normal, hitPosition, randSeed);
-    float NdotSun = saturate(dot(normal, g_view.directionToSun));
-    if (metalness == 0.0) // Dielectric surface
-    {
-        float3 wo = float3(0, 0, 0);
-        float pdf = 0.0;
-        float3 brdf_d = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
-        float cosTheta = saturate(dot(wo, normal));
+    if (!terminate) {
+        if (metalness == 0.0) // Dielectric surface
+        {
+            const float r0 = 0.04;
+            float schlick = r0 + (1.0 - r0) * pow((1.0 - dot(-ray.Direction, normal)), 5.0);
+            float specularContribution = schlick;
+            float diffuseContribution = 1.0 - schlick;
+            if (randFloat(randSeed) > schlick)
+            {
+                // Diffuse sample
+                float3 wo = float3(0, 0, 0);
+                float pdf = 0.0;
+                float3 brdf_d = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
+                float cosTheta = saturate(dot(wo, normal));
 
-        float3 sunlight = sampleSun(normal, hitPosition, randSeed);
-        float NdotSun = saturate(dot(normal, g_view.directionToSun));
-        float3 brdfSun = albedo / PI;
+                float3 sunTransmission = 0.0;
+                float3 sunlight = sampleSun(normal, hitPosition, sunTransmission, randSeed);
+                float NdotSun = saturate(dot(normal, g_view.directionToSun));
+                float3 brdfSun = albedo / PI;
 
-        float3 directSun = brdfSun * sunlight * NdotSun;
+                float3 directSun = brdfSun * sunlight * NdotSun * sunTransmission * opacity;
 
-        float3 radiance = emission + directSun;
+                float3 radiance = emission + directSun;
 
-        totalRadiance += throughput * radiance;
-        throughput *= (brdf_d * cosTheta) / pdf * opacity;
+                totalRadiance += throughput * radiance;
+                throughput *= (brdf_d * cosTheta) / pdf * opacity;
 
-        ray.Direction = wo;
+                ray.Direction = wo;
+            }
+            else
+            {
+                // Specular sample
+                float3 perturbedNormal = normalize(normal + sphereSample(randSeed) * roughness * roughness);
+                float3 wo = normalize(reflect(ray.Direction, perturbedNormal));
+                float pdf = 1.0;
+
+                ray.Direction = wo;
+                totalRadiance += throughput * emission;
+                throughput *= opacity * pdf * (albedo * (1.0 - specularContribution));
+            }
+
+
+        }
+        else // Metallic surface
+        {
+            float3 wo = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
+            float pdf = 1.0;
+
+            ray.Direction = wo;
+            totalRadiance += throughput * emission;
+            throughput *= albedo * opacity * pdf;
+        }
     }
-    else // Metallic surface
-    {
-        float3 wo = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
-        float pdf = 1.0; // Simplified for metallic surfaces
 
-        ray.Direction = wo;
-        totalRadiance += throughput * emission;
-        throughput *= albedo * opacity * pdf;
-    }
-
-
-    for (int bounce = 0; bounce < 4; bounce++)
+    for (int bounce = 0; bounce < 2; bounce++)
     {
         if (all(ray.Direction == 0.0)) 
         {
@@ -309,7 +328,8 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
                 float3 brdfValue = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
                 float cosTheta = saturate(dot(wo, normal));
 
-                float3 sunlight = sampleSun(normal, hitPosition, randSeed);
+                float3 sunTransmission = 0.0;
+                float3 sunlight = sampleSun(normal, hitPosition, sunTransmission, randSeed);
                 float NdotSun = saturate(dot(normal, g_view.directionToSun));
                 float3 brdfSun = albedo / PI;
 

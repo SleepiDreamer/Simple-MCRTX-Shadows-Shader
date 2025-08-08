@@ -1,6 +1,10 @@
 #ifndef _RT_COMMON_HLSL_
 #define _RT_COMMON_HLSL_
 
+#define skyIntensity 1.5
+#define sunIntensity 25.0
+#define moonIntensity 0.2
+
 #define PI 3.14159265359
 #define HALF_PI 1.57079632679
 #define TWO_PI 6.28318530718
@@ -856,5 +860,15 @@ struct GeometryInfo
 	// Whether this is the front face of the geometry.
     bool isFrontFace;
 };
+
+float getSunAzimuth(float3 directionToSun) {
+    return PI + atan2(directionToSun.z, directionToSun.x);
+}
+
+bool isSunActuallyMoon()
+{
+    return abs(PI - abs(abs(getSunAzimuth(g_view.directionToSun) - g_view.sunAzimuth) - PI)) > 0.0001;
+}
+
 
 #endif
