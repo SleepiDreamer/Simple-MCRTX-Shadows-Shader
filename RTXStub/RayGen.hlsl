@@ -37,8 +37,7 @@ void ExplicitLightSamplingInline(uint2 launchIndex: SV_DispatchThreadID)
 {
 }
 
-static const float emissiveIntensity = 100.0;
-static const float sunSizeDeg = 0.53 * 2.5; // Real-world value is 0.53
+
 
 // The primary ray tracing pass, writing useful information to the g-buffers.
 [numthreads(4, 8, 1)]
@@ -124,13 +123,15 @@ void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID)
 }
 
 
-float3 sampleSun(float3 normal, float3 origin, out float3 transmission, uint randSeed)
+float3 sampleSun(float3 normal, float3 origin, uint randSeed)
 {    
     float3 dirToSun = g_view.directionToSun;
     float3 sunColor = g_view.sunColour;
+    float intensity = sunIntensity;
     if (isSunActuallyMoon())
     {
-        sunColor = float3(0.8, 0.8, 1.0) * 0.2;
+        sunColor = float3(0.8, 0.8, 1.0) * moonIntensity;
+        intensity = moonIntensity;
     }
     float maxAngle = tan(sunSizeDeg * TO_RADIANS) / 2; // Maximum angle deviation
     float3 sampleAngle = normalize(dirToSun + diskSample(randSeed, dirToSun) * maxAngle); // Add disk offset
@@ -141,21 +142,11 @@ float3 sampleSun(float3 normal, float3 origin, out float3 transmission, uint ran
     ray.TMin = 0.0;
     ray.TMax = MAX_RAY_DISTANCE;
 
-    float NdotS = dot(normal, sampleAngle);
-#if 0
-    // Custom fade set up to still include perpendicular sun light on surfaces.
-    float sunFade = smoothstep(-0.2, 0.1, NdotS);
-#else
-    float sunFade = saturate(NdotS);
-#endif
     // Trace shadow ray
     ShadowPayload payload;
-    // payload.transmission = 1.0;
     TraceShadowRay(ray, payload);
 
-    // float3 sunlight = g_view.sunColour * sunIntensity * sunFade * payload.transmission;
-    transmission = payload.transmission;
-    return sunIntensity * sunFade * payload.transmission * pow(sunColor, 1.5);
+    return intensity * payload.transmission * pow(sunColor, 1.0);
 }
 
 
@@ -173,7 +164,7 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     }
 
 #if 0 // Debug view
-#if 0 // Multiple debug
+#if 1 // Multiple debug
     if (uv.x > 0.0) outputBufferRawFinal[ipos] = float4((octToNdirSnorm(outputBufferNormal[ipos]) + 1) / 2, 1.0);
     if (uv.x > 0.2) outputBufferRawFinal[ipos] = outputBufferEmissionAndMetalness[ipos];
     if (uv.x > 0.4) outputBufferRawFinal[ipos] = outputBufferAlbedoAndRoughness[ipos];
@@ -193,6 +184,9 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
 
     // Surface properties
     float3 albedo = pow(outputBufferAlbedoAndRoughness[ipos].rgb, 2.2);
+#if WHITE_FURNACE_TEST
+    albedo = float3(1.0, 1.0, 1.0); // White furnace test
+#endif
     float opacity = outputBufferOpacityAndObjectCategory[ipos].x;
     float objectCategory = outputBufferOpacityAndObjectCategory[ipos].y;
     float3 emission = outputBufferEmissionAndMetalness[ipos].rgb;
@@ -220,58 +214,63 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         terminate = true;
         if (any(hitPosition > 0.1) && any(albedo))
         {
-            totalRadiance += (albedo * 15.0) + (1.0 - albedo) * sampleSky(getPrimaryRayDir(ndcCoords)) * skyIntensity;
+            totalRadiance += throughput * (albedo * 15.0) + (1.0 - albedo) * sampleSky(getPrimaryRayDir(ndcCoords)) * skyIntensity;
+            // totalRadiance += float3(1.0, 0.0, 0.0);
         }
         else
         {
-            totalRadiance += sampleSky(getPrimaryRayDir(ndcCoords)) * skyIntensity;
+            totalRadiance += throughput * sampleSky(getPrimaryRayDir(ndcCoords)) * skyIntensity;
+            // totalRadiance += float3(0.0, 0.0, 1.0);
         }
     }
     if (!terminate) {
-        if (metalness == 0.0) // Dielectric surface
+        totalRadiance += throughput * emission;
+        
+        if (metalness < 0.5) // Dielectric surface
         {
-            const float r0 = 0.04;
-            float schlick = r0 + (1.0 - r0) * pow((1.0 - dot(-ray.Direction, normal)), 5.0);
-            float specularContribution = schlick;
-            float diffuseContribution = 1.0 - schlick;
-            if (randFloat(randSeed) > schlick)
+            // --- Explicit sun sampling ---
+            float pdf_sun = 0.0;
+            float3 directSun = float3(0, 0, 0);
+            float NdotL = saturate(dot(normal, g_view.directionToSun));
+            if (NdotL > 0.0)
             {
-                // Diffuse sample
-                float3 wo = float3(0, 0, 0);
-                float pdf = 0.0;
-                float3 brdf_d = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
-                float cosTheta = saturate(dot(wo, normal));
+                float3 Li = sampleSun(normal, hitPosition, randSeed);
 
-                float3 sunTransmission = 0.0;
-                float3 sunlight = sampleSun(normal, hitPosition, sunTransmission, randSeed);
-                float NdotSun = saturate(dot(normal, g_view.directionToSun));
-                float3 brdfSun = albedo / PI;
+                // Lambertian BRDF
+                float3 brdf_sun = albedo * INV_PI;
+                directSun = brdf_sun * Li * NdotL;
 
-                float3 directSun = brdfSun * sunlight * NdotSun * sunTransmission * opacity;
+                const float halfAngleRad = sunSizeDeg * 0.5f * TO_RADIANS;
+                const float omegaSun = 2.0f * PI * (1.0f - cos(halfAngleRad)); // Alternatively, use sunSizeSteradians macro
 
-                float3 radiance = emission + directSun;
-
-                totalRadiance += throughput * radiance;
-                throughput *= (brdf_d * cosTheta) / pdf * opacity;
-
-                ray.Direction = wo;
-            }
-            else
-            {
-                // Specular sample
-                float3 perturbedNormal = normalize(normal + sphereSample(randSeed) * roughness * roughness);
-                float3 wo = normalize(reflect(ray.Direction, perturbedNormal));
-                float pdf = 1.0;
-
-                ray.Direction = wo;
-                totalRadiance += throughput * emission;
-                throughput *= opacity * pdf * (albedo * (1.0 - specularContribution));
+                pdf_sun = 1.0 / omegaSun;
             }
 
 
+            // --- Sample next bounce direction ---
+            float3 wi = float3(0, 0, 0);
+            float cosTheta = 0.0;
+            cosineHemisphereSample(normal, randSeed, wi, cosTheta);
+
+            // PDF for cosine-weighted hemisphere sampling
+            float pdf_brdf = cosTheta * INV_PI; 
+
+            // Lambertian BRDF
+            float3 brdf = albedo * INV_PI; 
+
+
+            // --- MIS weighting ---
+            float w_light = pdf_sun / (pdf_sun + pdf_brdf);
+            float w_brdf = pdf_brdf / (pdf_sun + pdf_brdf);
+
+            totalRadiance += throughput * directSun * w_light;
+            throughput *= (brdf * cosTheta) / pdf_brdf;
+
+            ray.Direction = wi;
         }
         else // Metallic surface
         {
+            // TODO
             float3 wo = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
             float pdf = 1.0;
 
@@ -287,8 +286,8 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         {
             break;
         }
-        ray.Origin = offsetRay(hitPosition, normal);
         ray.TMin = 0.0f;
+        ray.Origin = offsetRay(hitPosition, normal);
         TracePrimaryRay(ray, currentHitInfo);
         if (terminate) break;
         
@@ -301,6 +300,9 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         SurfaceInfo surfaceInfo = getSurfaceInfo(object, geometryInfo);
         
         albedo = pow(surfaceInfo.albedo.rgb, 2.2);
+#if WHITE_FURNACE_TEST
+        albedo = float3(1.0, 1.0, 1.0); // Wite furnace test
+#endif
         opacity = surfaceInfo.opacity;
         emission = surfaceInfo.emission.rgb * emissiveIntensity;
         normal = surfaceInfo.normal;
@@ -316,42 +318,62 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         if (object.flags & objectFlagSunOrMoon)
         { 
             // Sun/Moon hit
-            totalRadiance += throughput * sampleSky(ray.Direction) * skyIntensity; // sample sky instead
+            totalRadiance += throughput * sampleSky(ray.Direction) * skyIntensity; // sample sky instead, reduces fireflies
             break;
         }
         else
         {
+            totalRadiance += throughput * emission;
+
             if (metalness == 0.0) // Dielectric surface
             {
-                float3 wo = float3(0, 0, 0);
-                float pdf = 0.0;
-                float3 brdfValue = SampleBRDF(-ray.Direction, normal, albedo, wo, pdf, randSeed);
-                float cosTheta = saturate(dot(wo, normal));
+                // --- Explicit sun sampling ---
+                float pdf_sun = 0.0;
+                float3 directSun = float3(0, 0, 0);
+                float NdotL = saturate(dot(normal, g_view.directionToSun));
+                if (NdotL > 0.0)
+                {
+                    float3 Li = sampleSun(normal, hitPosition, randSeed);
+                    // Lambertian BRDF
+                    float3 brdf = albedo * INV_PI;
+                    directSun = brdf * Li * NdotL;
 
-                float3 sunTransmission = 0.0;
-                float3 sunlight = sampleSun(normal, hitPosition, sunTransmission, randSeed);
-                float NdotSun = saturate(dot(normal, g_view.directionToSun));
-                float3 brdfSun = albedo / PI;
+                    const float halfAngleRad = sunSizeDeg * 0.5f * TO_RADIANS;
+                    const float omegaSun = 2.0f * PI * (1.0f - cos(halfAngleRad)); // Alternatively, use sunSizeSteradians macro
 
-                float3 directSun = brdfSun * sunlight * NdotSun;
+                    pdf_sun = 1.0 / omegaSun;
+                }
 
-                float3 radiance = emission + directSun;
 
-                totalRadiance += throughput * radiance;
-                throughput *= (brdfValue * cosTheta) / pdf * opacity;
+                // --- Sample next bounce direction ---
+                float3 wi = float3(0, 0, 0);
+                float cosTheta = 0.0;
+                cosineHemisphereSample(normal, randSeed, wi, cosTheta);
 
-                // ray.Direction = hemisphereSample(randSeed, normal);
-                ray.Direction = wo;
-                // ray.Direction = reflect(ray.Direction, normal);
+                // PDF for cosine-weighted hemisphere sampling
+                float pdf_brdf = cosTheta * INV_PI; 
+
+                // Lambertian BRDF
+                float3 brdf = albedo * INV_PI; 
+
+
+                // --- MIS weighting ---
+                float w_light = pdf_sun / (pdf_sun + pdf_brdf);
+                float w_brdf = pdf_brdf / (pdf_sun + pdf_brdf);
+
+                totalRadiance += throughput * directSun * w_light;
+                throughput *= (brdf * cosTheta) / pdf_brdf;
+
+                ray.Direction = wi;
             }
 
             else // Metallic surface
             {
+                // TODO
                 float3 wo = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
                 float pdf = 1.0; // Simplified for metallic surfaces
 
                 ray.Direction = wo;
-                totalRadiance += throughput * emission;
                 throughput *= albedo * opacity * pdf;
             }
         }

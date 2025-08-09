@@ -114,13 +114,24 @@ float3 diskSample(inout uint seed, float3 normal)
     return tangent * r.x + bitangent * r.y;
 }
 
-float3 cosineSampleHemisphere(float2 u) {
-    float r = sqrt(u.x);
-    float theta = 2.0f * PI * u.y;
-    float x = r * cos(theta);
-    float y = r * sin(theta);
-    float z = sqrt(max(0.0f, 1.0f - u.x)); // upper hemisphere
-    return float3(x, y, z);
+void cosineHemisphereSample(float3 normal, uint randSeed, out float3 sampleDir, out float cosTheta)
+{
+    float2 randomUV = randFloat2(randSeed);
+    float r   = sqrt(randomUV.x);
+    float phi = 2.0f * 3.14159265f * randomUV.y;
+
+    float x = r * cos(phi);
+    float y = r * sin(phi);
+    float z = sqrt(saturate(1.0f - x * x - y * y));
+
+    cosTheta = z;
+
+    float3 up = abs(normal.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+    float3 tangent   = normalize(cross(up, normal));
+    float3 bitangent = cross(normal, tangent);
+
+    sampleDir = x * tangent + y * bitangent + z * normal;
+    sampleDir = normalize(sampleDir); // Numerical safety
 }
 
 #endif

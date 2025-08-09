@@ -1,0 +1,15 @@
+w_o = outgoing direction
+w_i = incoming direction
+theta = angle between ray and normal
+f_r = brdf
+
+
+
+thoughput *= (brdf(w_i, w_o) * cos(theta_i)  /  pdf(w_i))
+
+NEE weight: (brdf * cosTheta) * L_i / pdf_light
+
+Cosine-weighted Lambertian
+BRDF: albedo / PI
+PDF: cos(theta) / PI
+throughput cancels out to: albedo

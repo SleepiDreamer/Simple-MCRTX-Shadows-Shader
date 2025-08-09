@@ -1,9 +1,17 @@
 #ifndef _RT_COMMON_HLSL_
 #define _RT_COMMON_HLSL_
 
+#define sunSizeDeg (0.53 * 2.5) // Real-world value is 0.53
+#define sunSizeRad (sunSizeDeg * TO_RADIANS)
+#define sunSizeSteradians (sunSizeRad * sunSizeRad * PI * 0.25) // Approximation for small values
+
 #define skyIntensity 1.5
 #define sunIntensity 25.0
-#define moonIntensity 0.2
+#define moonIntensity 1.0
+
+#define emissiveIntensity 100.0
+
+#define WHITE_FURNACE_TEST false
 
 #define PI 3.14159265359
 #define HALF_PI 1.57079632679
