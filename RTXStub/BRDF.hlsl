@@ -26,3 +26,16 @@ float ggxNormalDistribution(float3 n, float3 h, float roughness)
     
     return alpha2 / (PI * pow(cosTheta * cosTheta * (alpha2 + tanTheta * tanTheta), 2));
 }
+
+float3 sampleGGX(uint randSeed, float3 n, float alpha)
+{
+    float2 random = randFloat2(randSeed);
+
+    float phi = 2.0f * PI * random.x;
+    float cosTheta = sqrt((1.0f - random.y) / (1.0f + (alpha*alpha - 1.0f) * random.y));
+    float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
+
+    float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+
+    return TangentToWorld(h, n);
+}

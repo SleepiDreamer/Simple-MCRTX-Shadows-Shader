@@ -6,7 +6,7 @@
 #define sunSizeSteradians (sunSizeRad * sunSizeRad * PI * 0.25) // Approximation for small values
 
 #define skyIntensity 1.5
-#define sunIntensity 25.0
+#define sunIntensity (25.0 * (1.0 - WHITE_FURNACE_TEST))
 #define moonIntensity 1.0
 
 #define emissiveIntensity 100.0
@@ -20,6 +20,9 @@
 #define INV_TWO_PI 0.15915494309
 #define TO_RADIANS 0.01745329251
 #define TO_DEGREES 57.2957795131
+
+#define R_0 0.04 // Fresnel reflectance at normal incidence for dielectrics
+#define R_0_Water 0.02 // Fresnel reflectance at normal incidence for water
 
 // Defines that must match the cpp code
 #define BGFX_CONFIG_MAX_VERTEX_BUFFERS 4096

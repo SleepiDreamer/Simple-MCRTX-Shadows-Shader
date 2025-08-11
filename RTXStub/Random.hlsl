@@ -33,6 +33,12 @@ float nextSeedFloat(inout uint seed)
     return float(seed & 0x00FFFFFF) / float(0x01000000);
 }
 
+float4 loadBlueNoise4(uint2 ipos) {
+    return blueNoiseTexture.Load(int4(ipos.x % 256, ipos.y % 256, g_view.frameCount % 128, 0));
+}
+
+
+
 uint randUint(inout uint seed)
 {
     return randomSample(seed);
@@ -98,25 +104,25 @@ float3 sphereSample(inout uint seed)
     return float3(x, y, z);
 }
 
-float2 diskSample(inout uint seed)
+float2 diskSample(float2 random)
 {
-    float2 r = randFloat2(seed);
+    float2 r = random;
     float phi = 2 * PI * r.x;
     float rSqrt = sqrt(r.y);
     return float2(rSqrt * cos(phi), rSqrt * sin(phi));
 }
 
-float3 diskSample(inout uint seed, float3 normal)
+float3 diskSample(float2 random, float3 normal)
 {
-    float2 r = diskSample(seed);
+    float2 r = diskSample(random);
     float3 tangent = normalize(cross(normal, float3(0, 0, 1)));
     float3 bitangent = normalize(cross(normal, tangent));
     return tangent * r.x + bitangent * r.y;
 }
 
-void cosineHemisphereSample(float3 normal, uint randSeed, out float3 sampleDir, out float cosTheta)
+void cosineHemisphereSample(float3 normal, float2 random, out float3 sampleDir, out float cosTheta)
 {
-    float2 randomUV = randFloat2(randSeed);
+    float2 randomUV = random;
     float r   = sqrt(randomUV.x);
     float phi = 2.0f * 3.14159265f * randomUV.y;
 
