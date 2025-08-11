@@ -88,7 +88,7 @@
       },
       "PrimaryCheckerboardRayGenInline": {
         // Custom entry point for primary ray pass.
-        "entry_point": "PopulateGBuffer",
+        "entry_point": "PathTracingRayGenInline",
         "compute": "RayGen.hlsl"
       },
       "SunShadowRayGenInline": {
@@ -115,7 +115,7 @@
       },
       "SpecularRayGenInline": {
         // Custom entry point for combining lighting effects together.
-        "entry_point": "PathTracingRayGenInline",
+        "entry_point": "Dummy",
         "compute": "RayGen.hlsl"
       },
       "PathTracingRayGenInline": {
