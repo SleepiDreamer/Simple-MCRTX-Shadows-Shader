@@ -91,7 +91,7 @@ float3 sampleSun(float3 normal, float3 origin, float2 random)
     ShadowPayload payload;
     TraceShadowRay(ray, payload);
 
-    return payload.transmission * pow(sunColor, 1.0);
+    return payload.transmission * sunColor;
 }
 
 
@@ -118,9 +118,14 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     ray.TMax = MAX_RAY_DISTANCE;
     float hitT = MAX_RAY_DISTANCE;
 
+    float4 blueNoise4 = loadBlueNoise4(ipos);
+    float blueNoise[4] = { blueNoise4.x, blueNoise4.y, blueNoise4.z, blueNoise4.w };
+
     [unroll]
-    for (int bounce = 0; bounce < 3; bounce++)
+    for (int bounce = 0; bounce < 4; bounce++)
     {
+        if (all(clampNan(ray.Direction) == 0.0)) break;
+
         // Trace ray
         ray.TMin = 0.0001f;
         ray.Origin = offsetRay(hitPosition, ray.Direction);
@@ -130,6 +135,15 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         TracePrimaryRay(ray, hitInfo);
         hitT = hitInfo.hitT;
 
+        #if 0 // Alpha blending
+        if (bounce < 2 && hitInfo.hasHit())
+        {
+            float3 rayThroughput;
+            TraceThroughputRay(ray, rayThroughput);
+            throughput *= rayThroughput;
+        }
+        #endif        
+
         hitPosition = ray.Origin + hitT * ray.Direction;
 
     #if 1
@@ -138,27 +152,21 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         GeometryInfo geometryInfo = getGeometryInfo(hitInfo, ray.Direction);
         SurfaceInfo surfaceInfo = getSurfaceInfo(objectInstance, geometryInfo);
         
-        bool isSky = (hitT >= MAX_RAY_DISTANCE) || objectInstance.flags & objectFlagSunOrMoon;
-
         // Retrieve surface properties
         float3 hitPosition = ray.Origin + hitInfo.hitT * ray.Direction;
         float3 albedo = surfaceInfo.albedo.rgb;
         float opacity = surfaceInfo.opacity;
         float3 emission = surfaceInfo.emission.rgb * emissiveIntensity;
-        float3 normal = surfaceInfo.normal;
+        float3 normalGeo = surfaceInfo.normal;
         float roughness = surfaceInfo.roughness;
         float metalness = surfaceInfo.metalness;
         float3 motion = geometryInfo.motion;
 
-        // Convert properties to buffer format
-        float4 positionAndHitT = float4(hitPosition, hitT);
-        float4 albedoAndRoughness = float4(albedo, roughness);
-        float4 emissionAndMetalness = float4(emission, metalness);
-        float2 opacityAndCategory = float2(opacity, objectInstance.objectCategory);
         float3 worldPos = hitPosition - g_view.waveWorksOriginInSteveSpace;
         worldPos = worldPos - floor(worldPos / 1024) * 1024;
 
         // Sample normal map if available
+        float3 normal = geometryInfo.normal;
         PBRTextureData pbrTextureData = pbrTextureDataBuffer[geometryInfo.pbrTextureDataIdx];
         Texture2D atlas = textures[objectInstance.colourTextureIdx];
         if (pbrTextureData.flags & pbrTextureFlagHasNormalTexture)
@@ -168,21 +176,29 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
             normal = (geometryInfo.tangent   * pbrTangent.x) +
                     (geometryInfo.bitangent * pbrTangent.y) +
                     (geometryInfo.normal    * max(pbrTangent.z, 0.01));
+                    
         }
 
+        bool isSky = (hitT >= MAX_RAY_DISTANCE) || objectInstance.flags & objectFlagSunOrMoon;
         if (isSky)
         {
-            normal = -ray.Direction;
+            normalGeo = -ray.Direction;
             albedo = float3(0.0, 0.0, 0.0);
         }
 
         if (bounce == 0)
         {
+            // Convert properties to buffer format
+            float4 positionAndHitT = float4(hitPosition, hitT);
+            float4 albedoAndRoughness = float4(albedo, roughness);
+            float4 emissionAndMetalness = float4(emission, metalness);
+            float2 opacityAndCategory = float2(opacity, objectInstance.objectCategory);
+
             PopulateGBuffer(ipos, isSky, ray.Direction, positionAndHitT, albedoAndRoughness, 
                             emissionAndMetalness, opacityAndCategory, normal, hitInfo.instIdx, motion);
         }
     #endif
-        
+
         #if 0 // Debug view
         #if 1 // Multiple debug
             if (uv.x > 0.0) outputBufferRawFinal[ipos] = float4(normal + 1.0 / 2.0, 1.0);
@@ -206,13 +222,24 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
             albedo = float3(1.0, 1.0, 1.0); // White furnace test
         #endif
 
+        // check if normal is below normalGeo
+        if (dot(normal, normalGeo) < 0.0)
+        {
+            normal.y = -normal.y;
+        }
+
         if (isSky) // Sky hit
         {
             totalRadiance += throughput * sampleSky(ray.Direction, bounce == 0);
+            break;
         }
         else // Object hit
         {
-            totalRadiance += throughput * emission;
+            if (any(emission > 0.0))
+            {
+                totalRadiance += throughput * emission;
+                break; // Stop tracing on emission
+            }
 
             if (metalness < 0.5) // Dielectric surface
             {
@@ -221,7 +248,8 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
                 float NdotL = saturate(dot(normal, g_view.directionToSun));
                 if (NdotL > 0.0)
                 {
-                    float3 Li = sampleSun(normal, hitPosition, randFloat2(randSeed).xy);
+                    float2 randomSample = (bounce == 0) ? blueNoise4.xy : randFloat2(randSeed);
+                    float3 Li = sampleSun(normal, hitPosition, randomSample);
 
                     // Lambertian BRDF
                     float3 brdf_sun = albedo * INV_PI;
@@ -253,229 +281,27 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
                 float pdf = 1.0;
 
                 ray.Direction = wi;
-                throughput *= albedo * opacity * pdf;
+                throughput *= albedo * pdf;
             }
-
         }
 
         if (all(ray.Direction == 0.0)) 
         {
             break;
         }
+        
+        #if 1 // Russian roulette
+        if (uv.x >= 0.0)
+        {
+            float p = min(max3(throughput) * 2.0, 1.0);
+            if (randFloat(randSeed) > p)
+            {
+                break;
+            }
+            throughput /= p;
+        }
+        #endif
     }
-    
-
-
-
-// #if 0 // Debug view
-// #if 0 // Multiple debug
-//     if (uv.x > 0.0) outputBufferRawFinal[ipos] = float4((octToNdirSnorm(outputBufferNormal[ipos]) + 1) / 2, 1.0);
-//     if (uv.x > 0.2) outputBufferRawFinal[ipos] = outputBufferEmissionAndMetalness[ipos];
-//     if (uv.x > 0.4) outputBufferRawFinal[ipos] = outputBufferAlbedoAndRoughness[ipos];
-//     if (uv.x > 0.6) outputBufferRawFinal[ipos] = outputBufferPositionAndHitT[ipos];
-//     if (uv.x > 0.8) outputBufferRawFinal[ipos] = float4(outputBufferOpacityAndObjectCategory[ipos], 0.0, 1.0);
-//     return;
-// #else // Splitscreen
-//     if (uv.x > 0.0) 
-//     {
-//         uint2 samplePos = uint2(ipos.x - g_view.renderResolution.x / 2.0, ipos.y);
-//         // outputBufferRawFinal[ipos] = float4((outputBufferMotionVectors[ipos]), 0.0, 1.0);
-//         return;
-//     }
-// #endif
-// #endif
-
-//     // Surface properties
-//     float3 albedo = pow(outputBufferAlbedoAndRoughness[ipos].rgb, 2.2);
-// #if WHITE_FURNACE_TEST
-//     albedo = float3(1.0, 1.0, 1.0); // White furnace test
-// #endif
-//     float opacity = outputBufferOpacityAndObjectCategory[ipos].x;
-//     float objectCategory = outputBufferOpacityAndObjectCategory[ipos].y;
-//     float3 emission = outputBufferEmissionAndMetalness[ipos].rgb;
-//     float3 normal = octToNdirSnorm(outputBufferNormal[ipos]);
-//     float roughness = outputBufferAlbedoAndRoughness[ipos].a;
-//     float metalness = outputBufferEmissionAndMetalness[ipos].a;
-//     float3 hitPosition = outputBufferPositionAndHitT[ipos].xyz;
-//     float primaryT = outputBufferPositionAndHitT[ipos].w;
-//     float2 prevMotionVectors = outputBufferMotionVectors[ipos].xy;
-
-//     float3 totalRadiance = 0.0;
-//     float3 throughput = 1.0;
-//     float3 steveWorldPos = g_view.waveWorksOriginInSteveSpace;
-//     float hitT = MAX_RAY_DISTANCE;
-
-//     RayDesc ray;
-//     ray.TMax = MAX_RAY_DISTANCE;
-//     ray.Direction = getPrimaryRayDir(ndcCoords);
-//     HitInfo currentHitInfo;
-//     currentHitInfo.clear();
-
-//     bool terminate = false;
-//     if (primaryT >= MAX_RAY_DISTANCE) // Sky hit
-//     {
-//         terminate = true;
-//         if (any(hitPosition > 0.1) && any(albedo))
-//         {
-//             // totalRadiance += throughput * sampleSunTexture(ray.Direction, albedo);
-//             totalRadiance += throughput * sampleSky(ray.Direction, true);
-//             // totalRadiance += float3(1.0, 0.0, 0.0);
-//         }
-//         else
-//         {
-//             totalRadiance += throughput * sampleSky(ray.Direction, true);
-//             // totalRadiance += float3(0.0, 0.0, 1.0);
-//         }
-//     }
-//     if (!terminate) {
-//         totalRadiance += throughput * emission;
-        
-//         if (metalness < 0.5) // Dielectric surface
-//         {
-//             float reflectance = R_0 + (1.0 - R_0) * pow(1.0 - saturate(dot(normal, -ray.Direction)), 5.0);
-//             reflectance = 0.0;
-//             if (randFloat(randSeed) > reflectance) // Diffuse
-//             {
-//                 // --- Explicit sun sampling ---
-//                 float3 directSun = float3(0, 0, 0);
-//                 float NdotL = saturate(dot(normal, g_view.directionToSun));
-//                 if (NdotL > 0.0)
-//                 {
-//                     float3 Li = sampleSun(normal, hitPosition, loadBlueNoise4(ipos).xy);
-
-//                     // Lambertian BRDF
-//                     float3 brdf_sun = albedo * INV_PI;
-//                     directSun = brdf_sun * Li * NdotL;
-//                 }
-
-
-//                 // --- Sample next bounce direction ---
-//                 float3 wi = float3(0, 0, 0);
-//                 float cosTheta = 0.0;
-                
-//                 cosineHemisphereSample(normal, loadBlueNoise4(ipos).xy, wi, cosTheta);
-
-//                 // PDF for cosine-weighted hemisphere sampling
-//                 float pdf = cosTheta * INV_PI; 
-
-//                 // Lambertian BRDF
-//                 float3 brdf = albedo * INV_PI; 
-
-//                 totalRadiance += throughput * directSun;
-//                 throughput *= (brdf * cosTheta) / pdf;
-
-//                 ray.Direction = wi;
-//             }
-//             else // Specular
-//             {
-//                 // float3 wi = reflect(ray.Direction, normal);
-//                 // ray.Direction = wi;
-
-//                 // throughput *= opacity;
-//             }
-//         }
-//         else // Metallic surface
-//         {
-//             float3 wi = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
-//             // float3 roughnessDeviation = sampleGGX(randSeed, normal, roughness);
-//             // float3 wi = sampleGGX(randSeed, normal, 0.05);
-            
-//             float pdf = 1.0;
-
-//             ray.Direction = wi;
-//             throughput *= albedo * opacity * pdf;
-//         }
-//     }
-
-//     for (int bounce = 0; bounce < 2; bounce++)
-//     {
-//         if (terminate) break;
-//         if (all(ray.Direction == 0.0)) 
-//         {
-//             break;
-//         }
-//         ray.TMin = 0.0001f;
-//         ray.Origin = offsetRay(hitPosition, normal);
-//         TracePrimaryRay(ray, currentHitInfo);
-        
-//         // Load surface properties
-//         hitT = currentHitInfo.hitT;
-//         hitPosition = ray.Origin + hitT * ray.Direction;
-
-//         ObjectInstance object = objectInstances[currentHitInfo.instIdx];
-//         GeometryInfo geometryInfo = getGeometryInfo(currentHitInfo, ray.Direction);
-//         SurfaceInfo surfaceInfo = getSurfaceInfo(object, geometryInfo);
-        
-//         albedo = pow(surfaceInfo.albedo.rgb, 2.2);
-// #if WHITE_FURNACE_TEST
-//         albedo = float3(1.0, 1.0, 1.0);
-// #endif
-//         opacity = surfaceInfo.opacity;
-//         emission = surfaceInfo.emission.rgb * emissiveIntensity;
-//         normal = normalize(surfaceInfo.normal);
-//         roughness = surfaceInfo.roughness;
-//         metalness = surfaceInfo.metalness;
-
-//         if (!currentHitInfo.hasHit())
-//         { 
-//             // Sky hit
-//             totalRadiance += throughput * sampleSky(ray.Direction);
-//             break;
-//         }
-//         if (object.flags & objectFlagSunOrMoon)
-//         { 
-//             // Sun/Moon hit
-//             totalRadiance += throughput * sampleSky(ray.Direction); // sample sky instead, reduces fireflies
-//             break;
-//         }
-//         else
-//         {
-//             totalRadiance += throughput * emission;
-
-//             if (metalness < 0.5 || true) // Dielectric surface
-//             {
-//                 // --- Explicit sun sampling ---
-//                 float3 directSun = float3(0, 0, 0);
-//                 float NdotL = saturate(dot(normal, g_view.directionToSun));
-//                 if (NdotL > 0.0)
-//                 {
-//                     float3 Li = sampleSun(normal, hitPosition, float2(0.0, 0.0));
-
-//                     // Lambertian BRDF
-//                     float3 brdf = albedo * INV_PI;
-//                     directSun = brdf * Li * NdotL;
-//                 }
-
-
-//                 // --- Sample next bounce direction ---
-//                 float3 wi = float3(0, 0, 0);
-//                 float cosTheta = 0.0;
-//                 cosineHemisphereSample(normal, randFloat2(randSeed), wi, cosTheta);
-
-//                 // PDF for cosine-weighted hemisphere sampling
-//                 float pdf = cosTheta * INV_PI; 
-
-//                 // Lambertian BRDF
-//                 float3 brdf = albedo * INV_PI; 
-
-//                 totalRadiance += throughput * directSun;
-//                 throughput *= (brdf * cosTheta) / pdf;
-
-//                 ray.Direction = wi;
-//             }
-
-//             else // Metallic surface
-//             {
-//                 // TODO
-//                 float3 wo = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
-//                 float pdf = 1.0; // Simplified for metallic surfaces
-
-//                 ray.Direction = wo;
-//                 throughput *= albedo * opacity * pdf;
-//             }
-//         }
-
-//     }
 
 
 

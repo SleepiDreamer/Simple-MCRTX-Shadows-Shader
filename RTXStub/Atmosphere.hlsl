@@ -5,7 +5,7 @@
 #include "Helpers.hlsl"
 
 static const float sunAzimuthDeg = 0.0f;
-static const float sunZenithDeg = 30.0f;
+static const float sunZenithDeg = -30.0f;
 
 static const float3 zenithColour = float3(0.5, 0.7, 1.0);
 static const float3 nadirColour = float3(0.7, 0.7, 0.7);
