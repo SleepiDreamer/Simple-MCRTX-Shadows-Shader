@@ -21,90 +21,134 @@
 // SOFTWARE.
 
 // All values used to derive this implementation are sourced from Troy's initial AgX implementation/OCIO config file available here:
-//   https://github.com/sobotka/AgX
+// https://github.com/sobotka/AgX
 
 // 0: Default, 1: Golden, 2: Punchy
 #define AGX_LOOK 0
 
 // Mean error^2: 3.6705141e-06
 float3 agxDefaultContrastApprox(float3 x) {
-  float3 x2 = x * x;
-  float3 x4 = x2 * x2;
- 
-  return + 15.5     * x4 * x2
-         - 40.14    * x4 * x
-         + 31.96    * x4
-         - 6.868    * x2 * x
-         + 0.4298   * x2
-         + 0.1191   * x
-         - 0.00232;
+    float3 x2 = x * x;
+    float3 x4 = x2 * x2;
+    
+    return + 15.5     * x4 * x2
+            - 40.14    * x4 * x
+            + 31.96    * x4
+            - 6.868    * x2 * x
+            + 0.4298   * x2
+            + 0.1191   * x
+            - 0.00232;
 }
 
 float3 agx(float3 val) {
-  static const float3x3 agx_mat = float3x3(
-    0.842479062253094, 0.0423282422610123, 0.0423756549057051,
-    0.0784335999999992,  0.878468636469772,  0.0784336,
-    0.0792237451477643, 0.0791661274605434, 0.879142973793104);
-   
-  static const float min_ev = -12.47393f;
-  static const float max_ev = 4.026069f;
-  
-  // Input transform (inset)
-  val = mul(agx_mat, val);
- 
-  // Log2 space encoding
-  val = clamp(log2(val), min_ev, max_ev);
-  val = (val - min_ev) / (max_ev - min_ev);
- 
-  // Apply sigmoid function approximation
-  val = agxDefaultContrastApprox(val);
-  return val;
+    static const float3x3 agx_mat = float3x3(
+        0.842479062253094, 0.0423282422610123, 0.0423756549057051,
+        0.0784335999999992,  0.878468636469772,  0.0784336,
+        0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+    
+    static const float min_ev = -12.47393f;
+    static const float max_ev = 4.026069f;
+    
+    // Input transform (inset)
+    val = mul(agx_mat, val);
+    
+    // Log2 space encoding
+    val = clamp(log2(val), min_ev, max_ev);
+    val = (val - min_ev) / (max_ev - min_ev);
+    
+    // Apply sigmoid function approximation
+    val = agxDefaultContrastApprox(val);
+    return val;
 }
 
 float3 agxEotf(float3 val) {
-  static const float3x3 agx_mat_inv = float3x3(
-    1.19687900512017, -0.0528968517574562, -0.0529716355144438,
-    -0.0980208811401368, 1.15190312990417, -0.0980434501171241,
-    -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
-   
-  // Inverse input transform (outset)
-  val = mul(agx_mat_inv, val);
- 
-  // sRGB IEC 61966-2-1 2.2 Exponent Reference EOTF Display
-  // NOTE: We're linearizing the output here. Comment/adjust when
-  // *not* using a sRGB render target
-  val = pow(val, float3(2.2, 2.2, 2.2));
-  return val;
+    static const float3x3 agx_mat_inv = float3x3(
+        1.19687900512017, -0.0528968517574562, -0.0529716355144438,
+        -0.0980208811401368, 1.15190312990417, -0.0980434501171241,
+        -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+    
+    // Inverse input transform (outset)
+    val = mul(agx_mat_inv, val);
+    
+    // sRGB IEC 61966-2-1 2.2 Exponent Reference EOTF Display
+    // NOTE: We're linearizing the output here. Comment/adjust when
+    // *not* using a sRGB render target
+    val = pow(val, float3(2.2, 2.2, 2.2));
+    return val;
 }
 
 float3 agxLook(float3 val) {  
-  // Default
-  float3 offset = float3(0.0, 0.0, 0.0);
-  float3 slope = float3(1.0, 1.0, 1.0);
-  float3 power = float3(1.0, 1.0, 1.0);
-  float sat = 1.0;
- 
+    // Default
+    float3 offset = float3(0.0, 0.0, 0.0);
+    float3 slope = float3(1.0, 1.0, 1.0);
+    float3 power = float3(1.0, 1.0, 1.0);
+    float sat = 1.0;
+    
 #if AGX_LOOK == 1
-  // Golden
-  slope = float3(1.0, 0.9, 0.5);
-  power = float3(0.8, 0.8, 0.8);
-  sat = 0.8;
+    // Golden
+    slope = float3(1.0, 0.9, 0.5);
+    power = float3(0.8, 0.8, 0.8);
+    sat = 0.8;
 #elif AGX_LOOK == 2
-  // Punchy
-  slope = float3(1.0, 1.0, 1.0);
-  power = float3(1.35, 1.35, 1.35);
-  sat = 1.4;
+    // Punchy
+    slope = float3(1.0, 1.0, 1.0);
+    power = float3(1.35, 1.35, 1.35);
+    sat = 1.4;
 #endif
  
-  // ASC CDL
-  val = pow(val * slope + offset, power);
-  static const float3 lw = float3(0.2126, 0.7152, 0.0722);
-  float luma = dot(val, lw);
-  return luma + sat * (val - luma);
+    // ASC CDL
+    val = pow(val * slope + offset, power);
+    static const float3 lw = float3(0.2126, 0.7152, 0.0722);
+    float luma = dot(val, lw);
+    return luma + sat * (val - luma);
 }
 
 
 
+
+float3 tonemap_john(float3 sRGB)
+{
+    // NOTE: Tune these params based on your use case.
+    const float EXPOSURE = 1.35;
+    const float CONTRAST = 1.0;
+    const float RANGE    = 1.25;
+    
+    const float3x3 sRGB_to_LMS = float3x3(
+        0.31399022, 0.63951294, 0.04649755,
+        0.15537241, 0.75789446, 0.08670142,
+        0.01775239, 0.10944209, 0.87256922);
+
+    const float3x3 LMS_to_sRGB = float3x3(
+        5.47221206, -4.6419601 ,  0.16963708,
+       -1.1252419 ,  2.29317094, -0.1678952 ,
+        0.02980165, -0.19318073,  1.16364789);
+        
+    const float3 sRGB_to_Y = float3(0.2126729, 0.7151522, 0.0721750);
+    
+    // Apply tonescale in LMS
+    
+    float3 LMS = mul(sRGB_to_LMS, sRGB);
+    
+    LMS = pow(EXPOSURE * LMS, CONTRAST / RANGE);
+    LMS = LMS / (LMS + 1.0);
+    LMS = pow(LMS, float3(RANGE, RANGE, RANGE));
+    
+    sRGB = mul(LMS_to_sRGB, LMS);
+    
+    // Apply gamut mapping in sRGB
+    
+    float Y = dot(sRGB, sRGB_to_Y);
+    
+    float maximum = max(sRGB.r, max(sRGB.g, sRGB.b));
+    if (maximum > 1.0)
+        sRGB /= maximum;
+        
+    float minimum = min(sRGB.r, min(sRGB.g, sRGB.b));
+    if (minimum < 0.0)
+        sRGB = lerp(sRGB, Y, -minimum / (Y - minimum));
+    
+    return sRGB;
+}
 
 
 
@@ -181,10 +225,14 @@ float4 main(PSInput input) : SV_Target0 {
     float3 luminance = dot(exposedColor, float3(0.2126, 0.7152, 0.0722));
 
     // reinhard tonemapping
-    float3 tonemapped = pow(exposedColor / (exposedColor + 1.0), 1.0);
-    // blend rasterized and RT
-    float3 final = gamma_correct(rasterizedInput.rgb + tonemapped * (1.0 - rasterizedInput.a));
-    // float3 final = exposedColor;
+    float3 tonemapped;
+    if (input.texcoord0.x < 0.0 ) {
+        tonemapped = pow(exposedColor / (exposedColor + 1.0), 1.0);
+    }
+    else {
+        tonemapped = tonemap_john(exposedColor);
+    }
+    float3 final = gamma_correct(rasterizedInput.rgb + tonemapped * (1.0 - rasterizedInput.a)); // Blend raster and PT
 
     // float exposureMult = 1.0;
     // float3 exposedColor = (bloomColor.rgb, gBloomMultiplier.rgb, rasterColor.rgb) * exposureMult;

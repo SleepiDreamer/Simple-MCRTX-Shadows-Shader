@@ -21,14 +21,8 @@ void MeasureIncidentLight(uint3 launchIndex: SV_DispatchThreadID)
     float weight = 1.0;
 
     // Combine indirect and direct diffuse lighting to measure incoming light.
-#if 0
-    float3 incomingLight = inputBufferDiffuse[samplingCoord].rgb;
-    incomingLight += inputBufferSunLight[samplingCoord].rgb;
-    incomingLight *= inputBufferPrimaryThroughput[samplingCoord].rgb;
-
-    bool isSky = inputBufferPrimaryPathLength[samplingCoord] == MAX_RAY_DISTANCE;
-    if (isSky)
-        incomingLight = inputBufferRawFinal[samplingCoord].rgb;
+#if 1
+    float3 incomingLight = min(inputBufferRawFinal[samplingCoord].rgb, 10.0);
 #else
     float3 incomingLight = 1..xxx;
 #endif
@@ -45,10 +39,11 @@ static float desiredBrightness = 0.5;
 static float minEV = -1.0;
 
 // The maximum bound for the exposure value.
-static float maxEV = 0.0;
+static float maxEV = 6.0;
 
 // The percentage change in exposure value from current to desired each frame.
-static float autoExposureSpeed = g_lightMeterSamples.lightAccumulationAlpha;
+// static float autoExposureSpeed = g_lightMeterSamples.lightAccumulationAlpha;
+static float autoExposureSpeed = 0.01;
 
 // Resolve the incident light measurements into a single brightness value to expose to.
 [numthreads(1, 1, 1)]
@@ -88,9 +83,10 @@ void ResolveExposure(uint idx: SV_DispatchThreadID)
     float desiredExposure = exp2(desiredEV);
     float nextExposure = exp2(nextEV);
 
-#if 0 // Toggle auto exposure on/off
+#if 1 // Toggle auto exposure on/off
     // Write to incident light buffer. Index 2 is left unused at the moment.
     outputBufferIncidentLight[0].rg = float2(nextExposure, desiredExposure);
+    // outputBufferIncidentLight[0].rg = float2(1000.0, desiredExposure);
     outputBufferIncidentLight[1].rg = float2(nextEV, desiredEV);
     outputBufferIncidentLight[2].rgb = 1;
 #else

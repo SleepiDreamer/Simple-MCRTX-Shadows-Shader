@@ -1,41 +1,31 @@
 #include "Random.hlsl"
 #include "Helpers.hlsl"
 
-float3 SampleBRDF(float3 wi, float3 n, float3 albedo, out float3 wo, out float pdf, inout uint randSeed)
+float ggxNormalDistribution( float NdotH, float roughness )
 {
-    // float2 randSample = randFloat2(randSeed);
-    // float3 localWo = cosineSampleHemisphere(randSample);
-    // wo = TangentToWorld(localWo, n);
-    
-    // float cosTheta = dot(wo, n);
-    
-    // pdf = cosTheta / PI;
-    
-    // float3 brdfValue = albedo / PI;
-    
-    // return brdfValue;
-
-    return 0;
+	float a2 = roughness * roughness;
+	float d = ((NdotH * a2 - NdotH) * NdotH + 1);
+	return a2 / (d * d * PI);
 }
 
-float ggxNormalDistribution(float3 n, float3 h, float roughness)
+float schlickMaskingTerm(float NdotL, float NdotV, float roughness)
 {
-    float cosTheta = dot(n, h);
-    float tanTheta = sqrt(max(0.0f, 1.0f - cosTheta * cosTheta)) / cosTheta;
-    float alpha2 = roughness * roughness;
-    
-    return alpha2 / (PI * pow(cosTheta * cosTheta * (alpha2 + tanTheta * tanTheta), 2));
+	// Karis notes they use alpha / 2 (or roughness^2 / 2)
+	float k = roughness*roughness / 2;
+
+	// Compute G(v) and G(l).  These equations directly from Schlick 1994
+	//     (Though note, Schlick's notation is cryptic and confusing.)
+	float g_v = NdotV / (NdotV*(1 - k) + k);
+	float g_l = NdotL / (NdotL*(1 - k) + k);
+	return g_v * g_l;
 }
 
-float3 sampleGGX(uint randSeed, float3 n, float alpha)
+float3 schlickFresnel(float3 f0, float lDotH)
 {
-    float2 random = randFloat2(randSeed);
+	return f0 + (float3(1.0f, 1.0f, 1.0f) - f0) * pow(1.0f - lDotH, 5.0f);
+}
 
-    float phi = 2.0f * PI * random.x;
-    float cosTheta = sqrt((1.0f - random.y) / (1.0f + (alpha*alpha - 1.0f) * random.y));
-    float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
-
-    float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
-
-    return TangentToWorld(h, n);
+float schlickFresnel(float f0, float lDotH)
+{
+    return f0 + (1.0f - f0) * pow(1.0f - lDotH, 5.0f);
 }

@@ -186,7 +186,7 @@ SurfaceInfo getSurfaceInfo(in ObjectInstance objectInstance, in GeometryInfo geo
     surfaceInfo.albedo = colour.rgb;
     surfaceInfo.opacity = colour.a;
     surfaceInfo.metalness = metalness;
-    surfaceInfo.emission = colour.rgb * emissive;
+    surfaceInfo.emission = pow(colour.rgb, 2.2) * emissive;
     surfaceInfo.roughness = roughness;
     surfaceInfo.normal = geometryInfo.normal;
 

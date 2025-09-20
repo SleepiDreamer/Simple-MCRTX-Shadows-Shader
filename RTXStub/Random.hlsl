@@ -120,7 +120,7 @@ float3 diskSample(float2 random, float3 normal)
     return tangent * r.x + bitangent * r.y;
 }
 
-void cosineHemisphereSample(float3 normal, float2 random, out float3 sampleDir, out float cosTheta)
+void cosineHemisphereSample(float3 normal, float3 normalGeo, float2 random, out float3 sampleDir, out float cosTheta)
 {
     float2 randomUV = random;
     float r   = sqrt(randomUV.x);
@@ -138,6 +138,17 @@ void cosineHemisphereSample(float3 normal, float2 random, out float3 sampleDir, 
 
     sampleDir = x * tangent + y * bitangent + z * normal;
     sampleDir = normalize(sampleDir); // Numerical safety
+
+    // check if ray is pointing below normalGeo
+    if (dot(normalGeo, sampleDir) < 0.0f)
+    {
+        // sampleDir = -sampleDir; // flip direction
+        // cosTheta = -cosTheta; // flip cosine
+        tangent = -tangent; // flip tangent
+        bitangent = cross(normal, tangent); // recalculate bitangent
+        sampleDir = x * tangent + y * bitangent + z * normal;
+    }
+
 }
 
 #endif

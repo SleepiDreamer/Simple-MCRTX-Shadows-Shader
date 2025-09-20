@@ -13,3 +13,16 @@ Cosine-weighted Lambertian
 BRDF: albedo / PI
 PDF: cos(theta) / PI
 throughput cancels out to: albedo
+
+
+
+
+TODO:
+- specular
+- ggx
+- handle normals
+- reprojection
+- better bloom
+
+- denoising
+- importance sampling?

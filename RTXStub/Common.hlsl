@@ -7,9 +7,10 @@
 
 #define skyIntensity 1.5
 #define sunIntensity (25.0 * (1.0 - WHITE_FURNACE_TEST))
-#define moonIntensity 1.0
+#define moonIntensity 0.2
+#define moonSkyIntensity 0.003
 
-#define emissiveIntensity 100.0
+#define emissiveIntensity 200.0
 
 #define WHITE_FURNACE_TEST false
 
@@ -30,6 +31,11 @@
 #define BGFX_CONFIG_MAX_TEXTURES 4096
 
 // ---[ Structures ]---
+#define SAMPLE_TYPE_NONE		0
+#define SAMPLE_TYPE_DIFFUSE		1
+#define SAMPLE_TYPE_SPECULAR	2
+#define SAMPLE_TYPE_METAL		3
+
 #define OBJECT_CATEGORY_OPAQUE 		0
 #define OBJECT_CATEGORY_ALPHA_TEST 	1
 #define OBJECT_CATEGORY_ALPHA_BLEND 2

@@ -73,9 +73,8 @@ void PopulateGBuffer(uint2 ipos: SV_DispatchThreadID, const bool hitSky, const f
 }
 
 
-float3 sampleSun(float3 normal, float3 origin, float2 random)
+float3 sampleSun(float3 normal, float3 origin, float2 random, float3 dirToSun)
 {    
-    float3 dirToSun = getDirectionToSun();
     float3 sunColor = getSunColor();
 
     float maxAngle = tan(sunSizeDeg * TO_RADIANS) / 2; // Maximum angle deviation
@@ -118,11 +117,13 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     ray.TMax = MAX_RAY_DISTANCE;
     float hitT = MAX_RAY_DISTANCE;
 
+    int prevSampleType = SAMPLE_TYPE_NONE;
+
     float4 blueNoise4 = loadBlueNoise4(ipos);
     float blueNoise[4] = { blueNoise4.x, blueNoise4.y, blueNoise4.z, blueNoise4.w };
 
     [unroll]
-    for (int bounce = 0; bounce < 4; bounce++)
+    for (int bounce = 0; bounce < 3; bounce++)
     {
         if (all(clampNan(ray.Direction) == 0.0)) break;
 
@@ -169,14 +170,53 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         float3 normal = geometryInfo.normal;
         PBRTextureData pbrTextureData = pbrTextureDataBuffer[geometryInfo.pbrTextureDataIdx];
         Texture2D atlas = textures[objectInstance.colourTextureIdx];
-        if (pbrTextureData.flags & pbrTextureFlagHasNormalTexture)
+
+        float3 pbrTangent;
+        if (pbrTextureData.flags & pbrTextureFlagHasNormalTexture | pbrTextureFlagHasHeightMapTexture)
         {
             float2 pbrUV = mad(geometryInfo.uv, pbrTextureData.colourToNormalUvScale, pbrTextureData.colourToNormalUvBias);
-            float3 pbrTangent = atlas.SampleLevel(defaultSampler, pbrUV, 0).xyz * 2.0 - 1.0;
+            if (pbrTextureData.flags & pbrTextureFlagHasNormalTexture)
+            {
+                pbrTangent = atlas.SampleLevel(defaultSampler, pbrUV, 0).xyz * 2.0 - 1.0;
+            }      
+            if (pbrTextureData.flags & pbrTextureFlagHasHeightMapTexture)
+            {
+                uint texWidth, texHeight;
+                textures[objectInstance.colourTextureIdx].GetDimensions(texWidth, texHeight);
+                const float epsilon = 1.0 / 262144.0; // 1 / 2^18
+
+                float2 texUV = pbrUV * float2(texWidth, texHeight); // scaledUV
+                float2 pixelUV = frac(texUV);
+                float2 heightUV = pbrUV; // uv2
+                // if (abs(pixelUV.x - 0.5) < 0.0625)
+                // {
+                //     heightUV.x += (pixelUV > 0.5) ? epsilon : -epsilon;
+                // }
+                // if (abs(pixelUV.y - 0.5) < 0.0625)
+                // {
+                //     heightUV.y += (pixelUV > 0.5) ? epsilon : -epsilon;
+                // }
+                float4 heights = textures[objectInstance.colourTextureIdx].GatherRed(defaultSampler, heightUV);
+
+                pixelUV = frac(texUV + 0.5);
+
+                float2 heightSet = (pixelUV.y > 0.5) ? float2(heights.x, heights.y) : float2(heights.w, heights.z);
+                uint d0 = saturate((pixelUV.x - g_view.heightMapPixelEdgeWidth) * 2);
+                uint d1 = saturate((pixelUV.x + g_view.heightMapPixelEdgeWidth) * 2);
+                pbrTangent.x = heightSet[d0] - heightSet[d1];
+
+                heightSet = (pixelUV.x > 0.5) ? float2(heights.z, heights.y) : float2(heights.w, heights.x);
+                uint d2 = saturate((pixelUV.y - g_view.heightMapPixelEdgeWidth) * 2);
+                uint d3 = saturate((pixelUV.y + g_view.heightMapPixelEdgeWidth) * 2);
+                pbrTangent.y = heightSet[d2] - heightSet[d3];
+
+                pbrTangent.z = g_view.recipHeightMapDepth;
+                pbrTangent = normalize(pbrTangent);
+            }
+
             normal = (geometryInfo.tangent   * pbrTangent.x) +
                     (geometryInfo.bitangent * pbrTangent.y) +
                     (geometryInfo.normal    * max(pbrTangent.z, 0.01));
-                    
         }
 
         bool isSky = (hitT >= MAX_RAY_DISTANCE) || objectInstance.flags & objectFlagSunOrMoon;
@@ -200,7 +240,7 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     #endif
 
         #if 0 // Debug view
-        #if 1 // Multiple debug
+        #if 0 // Multiple debug
             if (uv.x > 0.0) outputBufferRawFinal[ipos] = float4(normal + 1.0 / 2.0, 1.0);
             if (uv.x > 0.2) outputBufferRawFinal[ipos] = float4(emission.rgb, 1.0);
             if (uv.x > 0.4) outputBufferRawFinal[ipos] = float4(albedo.rgb, 1.0);
@@ -210,7 +250,8 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
         #else // Splitscreen
             if (uv.x > 0.0) 
             {
-                uint2 samplePos = uint2(ipos.x - g_view.renderResolution.x / 2.0, ipos.y);
+                // uint2 samplePos = uint2(ipos.x - g_view.renderResolution.x / 2.0, ipos.y);
+                // outputBufferRawFinal[ipos] = float4(pbrTangent, 1.0);
                 // outputBufferRawFinal[ipos] = float4((outputBufferMotionVectors[ipos]), 0.0, 1.0);
                 return;
             }
@@ -222,15 +263,9 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
             albedo = float3(1.0, 1.0, 1.0); // White furnace test
         #endif
 
-        // check if normal is below normalGeo
-        if (dot(normal, normalGeo) < 0.0)
-        {
-            normal.y = -normal.y;
-        }
-
         if (isSky) // Sky hit
         {
-            totalRadiance += throughput * sampleSky(ray.Direction, bounce == 0);
+            totalRadiance += throughput * sampleSky(ray.Direction, prevSampleType != SAMPLE_TYPE_DIFFUSE);
             break;
         }
         else // Object hit
@@ -243,45 +278,67 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
 
             if (metalness < 0.5) // Dielectric surface
             {
-                // --- Explicit sun sampling ---
-                float3 directSun = float3(0, 0, 0);
-                float NdotL = saturate(dot(normal, g_view.directionToSun));
-                if (NdotL > 0.0)
+                float reflectance = schlickFresnel(0.04, dot(-ray.Direction, normalGeo));
+                if (randFloat(randSeed) > reflectance || true)
                 {
-                    float2 randomSample = (bounce == 0) ? blueNoise4.xy : randFloat2(randSeed);
-                    float3 Li = sampleSun(normal, hitPosition, randomSample);
+                    // --- Explicit sun sampling ---
+                    float3 directSun = float3(0, 0, 0);
+                    float3 dirToSun = getDirectionToSun();
+                    float NdotL = saturate(dot(normal, dirToSun));
+                    if (NdotL > 0.0)
+                    {
+                        float2 randomSample = (bounce == 0) ? blueNoise4.xy : randFloat2(randSeed);
+                        float3 Li = sampleSun(normal, hitPosition, randomSample, dirToSun);
+
+                        // Lambertian BRDF
+                        float3 brdf_sun = albedo * INV_PI;
+                        directSun = brdf_sun * Li * NdotL;
+                    }
+
+
+                    // --- Sample next bounce direction ---
+                    float3 wi = float3(0, 0, 0);
+                    float cosTheta = 0.0;
+                    
+                    cosineHemisphereSample(normal, normalGeo, randFloat2(randSeed), wi, cosTheta);
+
+                    // PDF for cosine-weighted hemisphere sampling
+                    float pdf = cosTheta * INV_PI; 
 
                     // Lambertian BRDF
-                    float3 brdf_sun = albedo * INV_PI;
-                    directSun = brdf_sun * Li * NdotL;
+                    float3 brdf = albedo * INV_PI; 
+
+                    totalRadiance += throughput * directSun;
+                    throughput *= (brdf * cosTheta) / pdf * (1.0f - reflectance);
+
+                    ray.Direction = wi;
+                    prevSampleType = SAMPLE_TYPE_DIFFUSE;
                 }
+                else
+                {
+                    // --- Sample reflection direction ---
+                    float3 wi = reflect(ray.Direction, normal);
 
+                    // throughput *= reflectance;
 
-                // --- Sample next bounce direction ---
-                float3 wi = float3(0, 0, 0);
-                float cosTheta = 0.0;
-                
-                cosineHemisphereSample(normal, randFloat2(randSeed), wi, cosTheta);
-
-                // PDF for cosine-weighted hemisphere sampling
-                float pdf = cosTheta * INV_PI; 
-
-                // Lambertian BRDF
-                float3 brdf = albedo * INV_PI; 
-
-                totalRadiance += throughput * directSun;
-                throughput *= (brdf * cosTheta) / pdf;
-
-                ray.Direction = wi;
+                    ray.Direction = wi;
+                    prevSampleType = SAMPLE_TYPE_SPECULAR;
+                }
+                    
             }
             else // Metallic surface
             {
                 float3 wi = normalize(reflect(ray.Direction, normal) + sphereSample(randSeed) * roughness * roughness);
+                if (dot(wi, normalGeo) < 0.0)
+                {
+                    break;   
+                }
                 
                 float pdf = 1.0;
 
                 ray.Direction = wi;
                 throughput *= albedo * pdf;
+                prevSampleType = SAMPLE_TYPE_METAL;
             }
         }
 
@@ -320,23 +377,43 @@ void PathTracingRayGenInline(uint2 ipos: SV_DispatchThreadID)
     outputBufferPreviousSunLightShadow[ipos] = float4(reprojectedColor, primaryT);
     // outputBufferPreviousSunLightShadow[ipos] = float4(1, 1, 1, 1);
 #else
-    if (AreMatricesEqual(g_view.viewProj, g_view.prevViewProj, 1e-6) && all(g_view.steveSpaceDelta == 0.0) ) 
+    if (AreMatricesEqual(g_view.viewProj, g_view.prevViewProj, 1e-4) && all(g_view.steveSpaceDelta == 0.0) ) 
     {
-        float4 prevFrame = outputBufferPreviousSunLightShadow[ipos];
-        float3 prevColour = prevFrame.rgb;
-        
-        uint numFramesAccumulating;
-        if (outputBufferPreviousSunLightShadow[ipos].a == 0)
-        {
-            numFramesAccumulating = 1;
-        }
-        else
-        {
-            numFramesAccumulating = uint(prevFrame.a) + 1;
-        }
-        outputBufferPreviousSunLightShadow[ipos].rgb += totalRadiance;
-        outputBufferPreviousSunLightShadow[ipos].a = numFramesAccumulating;
-        outputBufferRawFinal[ipos] = float4(outputBufferPreviousSunLightShadow[ipos].rgb / (numFramesAccumulating + 1), 1.0);
+        #if 0 // Additive accumulation
+            float4 prevFrame = outputBufferPreviousSunLightShadow[ipos];
+            float3 prevColour = prevFrame.rgb;
+            
+            uint numFramesAccumulating;
+            if (outputBufferPreviousSunLightShadow[ipos].a == 0)
+            {
+                numFramesAccumulating = 1;
+            }
+            else
+            {
+                numFramesAccumulating = uint(prevFrame.a) + 1;
+            }
+
+            outputBufferPreviousSunLightShadow[ipos].rgb += totalRadiance;
+            outputBufferPreviousSunLightShadow[ipos].a = numFramesAccumulating;
+            outputBufferRawFinal[ipos] = float4(outputBufferPreviousSunLightShadow[ipos].rgb / (numFramesAccumulating + 1), 1.0);
+        #else // Blending accumulation
+            float4 prevFrame = outputBufferPreviousSunLightShadow[ipos];
+            float3 prevColour = prevFrame.rgb;
+
+            uint numFramesAccumulating;
+            if (prevFrame.a == 0)
+            {
+                numFramesAccumulating = 1;
+            }
+            else
+            {
+                numFramesAccumulating = uint(prevFrame.a) + 1;
+            }
+
+            float3 blendedColour = lerp(prevColour, totalRadiance, 1.0 / numFramesAccumulating);
+            outputBufferPreviousSunLightShadow[ipos] = float4(blendedColour, numFramesAccumulating);
+            outputBufferRawFinal[ipos] = float4(blendedColour, 1.0);
+        #endif
     }
     else
     {

@@ -67,7 +67,7 @@ float3 sampleSky(in float3 direction, bool includeSun = false) {
         highlight += getSunColor() * 100.0;
     }
 
-    color = max(color, float3(0.16, 0.16, 1.0) * 0.03); // Night time sky
+    color = max(color, float3(0.16, 0.16, 1.0) * moonSkyIntensity); // Night time sky
 
     color += highlight;
     return color;
